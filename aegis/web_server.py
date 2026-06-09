@@ -3,6 +3,7 @@ import json
 import csv
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from colorama import Fore, Style
 from aegis.grading import scan_student_code
 from aegis.git_forensics import analyze_git_history
 from aegis.winnowing import get_file_fingerprints, compute_similarity

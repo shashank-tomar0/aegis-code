@@ -20,7 +20,7 @@ Screen {
 
 /* App Header styling */
 #header-panel {
-    height: 7;
+    height: 6;
     background: #0d0e12;
     border-bottom: solid #1f2229;
     padding: 1 2;
@@ -208,11 +208,10 @@ class AegisTUI(App):
             yield Static("[#ff5f56]●[/] [#ffbd2e]●[/] [#27c93f]●[/]", id="traffic-lights")
             
             ascii_logo = (
-                r"[bold #00d4c8]      ___   __________   _______[/][bold #9d6fff]  _________  ____  _____[/]" + "\n"
-                r"[bold #00d4c8]     /   | / ____/ __ \ /  _/ ___/[/][bold #9d6fff]/ ____/ __ \/ __ \/ ___/[/]" + "\n"
-                r"[bold #00d4c8]    / /| |/ __/ / / / / / / \__ \ [/][bold #9d6fff]/ /   / / / / / / / __/  [/]" + "\n"
-                r"[bold #00d4c8]   / ___ / /___/ /_/ /_/ / ___/ /[/][bold #9d6fff]/ /___/ /_/ / /_/ / /___ [/]" + "\n"
-                r"[bold #00d4c8]  /_/  |_\____/\____//___//____/ [/][bold #9d6fff]\____/\____/_____/_____/[/]"
+                r"[bold #00d4c8]   __ _  ___  ___ _(_)__[/]  [bold #9d6fff]/ ___/___  ___/ /__[/]" + "\n"
+                r"[bold #00d4c8]  / _` |/ -_)/ _ `/ /(_-<[/][bold #9d6fff]/ /__ / _ \/ _  // -_)[/]" + "\n"
+                r"[bold #00d4c8]  \_,_| \__/ \_, /_//___/[/][bold #9d6fff]\___/ \___/\_,_/ \__/[/]" + "\n"
+                r"[bold #00d4c8]            /___/        [/]"
             )
             yield Static(ascii_logo, id="header-title", markup=True)
             yield Static("STATS WAITING...", id="header-stats")

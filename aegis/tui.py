@@ -7,33 +7,42 @@ from typing import ClassVar
 from rich.text import Text
 from rich.panel import Panel
 from rich.align import Align
+from rich.console import Group
+from rich.progress import BarColumn, Progress, TextColumn
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, Container
 from textual.widgets import DataTable, Footer, ProgressBar, RichLog, Static
 
-
+# --- CSS Design System ---
 CSS = """
 Screen {
-    background: #09090b;
+    background: #0d0e12;
+    font-family: "JetBrains Mono", "Fira Code", monospace;
 }
 
-/* Custom Header styling */
+/* App Header styling (macOS dots + Split Logotype) */
 #header-panel {
-    height: 6;
-    background: #09090b;
-    border-bottom: heavy #00f0ff;
+    height: 4;
+    background: #0d0e12;
+    border-bottom: solid #1f2229;
     padding: 1 2;
 }
 
-#header-title {
-    color: #9d4edd;
-    text-style: bold;
+#traffic-lights {
+    width: 10;
     content-align: left middle;
 }
 
+#header-title {
+    width: 1fr;
+    content-align: left middle;
+    text-style: bold;
+}
+
 #header-stats {
+    width: auto;
     color: #a1a1aa;
     text-align: right;
     content-align: right middle;
@@ -42,122 +51,150 @@ Screen {
 /* Main Layout */
 #body {
     height: 1fr;
-    background: #09090b;
+    background: #0d0e12;
 }
 
 #table-container {
     width: 65%;
-    border-right: vkey #27272a;
-    background: #09090b;
+    border-right: solid #1f2229;
+    background: #0d0e12;
 }
 
 #detail-container {
     width: 35%;
     padding: 1 2;
-    background: #050505;
+    background: #0d0e12;
 }
 
-/* Data Table */
+/* Data Table Customization */
 DataTable {
-    background: #09090b;
+    background: #0d0e12;
     color: #e4e4e7;
 }
 
 DataTable > .datatable--header {
-    background: #18181b;
-    color: #00f0ff;
+    background: #16181d;
+    color: #a1a1aa;
     text-style: bold;
 }
 
 DataTable > .datatable--cursor {
-    background: #9d4edd 30%;
+    background: #1f2229;
     color: #ffffff;
     text-style: bold;
+    border-left: vkey #9d6fff;
 }
 
-/* Detail Panel */
+DataTable > .datatable--hover {
+    background: #16181d;
+}
+
+/* Detail Panel / Dossier */
 #detail {
     height: 1fr;
-    background: #050505;
+    background: #0d0e12;
     color: #d4d4d8;
-    border: ascii #00f0ff;
-    padding: 1 2;
+    padding: 1 1;
 }
 
 /* Progress & Logs */
 #bottom-container {
-    height: 14;
-    border-top: heavy #00f0ff;
-    background: #09090b;
+    height: 12;
+    border-top: solid #1f2229;
+    background: #0d0e12;
 }
 
 #progress-panel {
     height: 3;
     padding: 1 2;
-    background: #18181b;
+    background: #16181d;
 }
 
 #progress-label {
     height: 1;
-    color: #00f0ff;
+    color: #a1a1aa;
     text-style: bold;
 }
 
 #log {
     height: 1fr;
-    background: #000000;
-    color: #a1a1aa;
+    background: #0d0e12;
+    color: #8b949e;
     border: none;
-    padding: 0 1;
+    padding: 0 2;
 }
 
 Footer {
-    background: #18181b;
-    color: #00e676;
+    background: #16181d;
+    color: #52525b;
+}
+
+Footer > .footer--key {
+    color: #00d4c8;
+    background: #1f2229;
 }
 """
 
+# --- UI Helper Functions ---
+def _make_badge(text: str, color_hex: str, text_hex: str = "#ffffff") -> Text:
+    """Creates a semantic 'pill' badge."""
+    return Text(f" {text} ", style=f"bold {text_hex} on {color_hex}")
 
-def _grade_text(value: str) -> Text:
-    try:
-        grade = float(value)
-    except (TypeError, ValueError):
-        return Text(str(value or "-"), style="dim white")
-    color = "#00e676" if grade >= 80 else "#ffb703" if grade >= 50 else "#ff007f"
-    return Text(f" {grade:.1f}% ", style=f"bold {color}")
+def _mini_bar(percentage: float, width: int = 8, color: str = "#9d6fff") -> Text:
+    """Generates a text-based horizontal mini-bar for percentages."""
+    filled = int((percentage / 100.0) * width)
+    empty = width - filled
+    bar_text = ("█" * filled) + ("░" * empty)
+    return Text(f"{bar_text} {percentage:.1f}%", style=color)
 
-
-def _match_text(value: str) -> Text:
+def _match_column(value: str) -> Text:
     text = str(value or "0.0%")
     try:
         pct = float(text.split("%")[0])
     except (TypeError, ValueError, IndexError):
         return Text(text, style="dim white")
-    color = "#ff007f" if pct >= 70 else "#ffb703" if pct >= 40 else "#00f0ff"
-    return Text(f" {text} ", style=f"bold {color}")
+    color = "#ff007f" if pct >= 70 else "#ffb703" if pct >= 40 else "#00d4c8"
+    return _mini_bar(pct, width=6, color=color)
 
+def _grade_badge(value: str) -> Text:
+    try:
+        grade = float(value)
+    except (TypeError, ValueError):
+        return _make_badge(str(value or "-"), "#52525b")
+    color = "#00e676" if grade >= 80 else "#ffb703" if grade >= 50 else "#ff007f"
+    # Using black text for better contrast on bright pill backgrounds
+    return _make_badge(f"{grade:.1f}%", color, "#000000" if grade >= 50 else "#ffffff")
 
-def _status_text(stage: str) -> Text:
+def _status_badge(stage: str) -> Text:
     palette = {
-        "queued": "#71717a",
+        "queued": "#52525b",
         "scanning": "#ffb703",
-        "scanned": "#00f0ff",
-        "comparing": "#9d4edd",
+        "scanned": "#00d4c8",
+        "comparing": "#9d6fff",
         "grading": "#ffb703",
         "graded": "#00e676",
         "error": "#ff007f",
     }
-    return Text(f" ◉ {stage.upper()} ", style=f"bold {palette.get(stage, '#ffffff')}")
+    return _make_badge(stage.upper(), palette.get(stage, "#52525b"), "#000000" if stage in ["scanning", "scanned", "graded"] else "#ffffff")
 
+def _bool_badge(val: str, ok_val: str, warn_val: str = None) -> Text:
+    val = str(val).upper()
+    if val == ok_val:
+        return _make_badge(val, "#00e676", "#000000")
+    elif warn_val and val == warn_val:
+        return _make_badge(val, "#ffb703", "#000000")
+    else:
+        return _make_badge(val, "#ff007f", "#ffffff")
 
+# --- Main Application ---
 class AegisTUI(App):
     CSS = CSS
     TITLE = "AegisCode"
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("a", "run_audit", "🚀 Run Audit"),
-        Binding("r", "refresh", "🔄 Reload CSV"),
-        Binding("w", "open_web", "🌐 Open Web UI"),
-        Binding("q", "quit", "❌ Quit"),
+        Binding("a", "run_audit", "Run Audit"),
+        Binding("r", "refresh", "Reload"),
+        Binding("w", "open_web", "Web UI"),
+        Binding("q", "quit", "Quit"),
     ]
 
     def __init__(self, submissions_dir: str = "test_submissions", config: dict | None = None, test_command: str | None = None, rubric_path: str = "rubric.md"):
@@ -173,20 +210,13 @@ class AegisTUI(App):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="header-panel"):
-            yield Static(
-                "█████╗ ███████╗ ██████╗ ██╗███████╗ ██████╗ ██████╗ ██████╗ ███████╗\n"
-                "██╔══██╗██╔════╝██╔════╝ ██║██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝\n"
-                "███████║█████╗  ██║  ███╗██║███████╗██║     ██║   ██║██║  ██║█████╗  \n"
-                "██╔══██║██╔══╝  ██║   ██║██║╚════██║██║     ██║   ██║██║  ██║██╔══╝  \n"
-                "██║  ██║███████╗╚██████╔╝██║███████║╚██████╗╚██████╔╝██████╔╝███████╗\n"
-                "╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝",
-                id="header-title"
-            )
+            yield Static("[#ff5f56]●[/] [#ffbd2e]●[/] [#27c93f]●[/]", id="traffic-lights")
+            yield Static("[bold #00d4c8]AEGIS[/][bold #9d6fff]CODE[/]", id="header-title")
             yield Static("STATS WAITING...", id="header-stats")
             
         with Horizontal(id="body"):
             with Vertical(id="table-container"):
-                yield DataTable(id="students", cursor_type="row", zebra_stripes=True)
+                yield DataTable(id="students", cursor_type="row", zebra_stripes=False)
             with Vertical(id="detail-container"):
                 yield Static("Select a student to inspect details.", id="detail", markup=True)
                 
@@ -202,7 +232,7 @@ class AegisTUI(App):
         table = self.query_one("#students", DataTable)
         table.add_columns("STUDENT", "STAGE", "MATCH", "GIT", "FUZZ", "INTEGRITY", "GRADE")
         self.load_existing_results()
-        self.log_message("\n[bold #00f0ff]AegisCode Forensics Engine Initialized[/]\n[dim]Ready for command payload...[/]")
+        self.log_message("\n[bold #00d4c8]AEGIS[/][bold #9d6fff]CODE[/] [dim]Forensics Engine Initialized[/]\n[dim]Ready for command payload...[/]")
 
     def load_existing_results(self) -> None:
         rows = []
@@ -215,9 +245,9 @@ class AegisTUI(App):
             self.student_rows[name] = {**row, "Stage": "graded"}
         self.refresh_table()
         if rows:
-            self.log_message(f"[bold #00e676]✓[/] [white]Loaded {len(rows)} students from database.[/]")
+            self.log_message(f"[bold #00e676]✓[/] [dim]Loaded {len(rows)} students from database.[/]")
         else:
-            self.log_message("[bold #ffb703]![/] [white]No grades.csv found. Press 'A' to execute Audit Protocol.[/]")
+            self.log_message("[bold #ffb703]![/] [dim]No grades.csv found. Press 'A' to execute Audit Protocol.[/]")
 
     def refresh_table(self) -> None:
         table = self.query_one("#students", DataTable)
@@ -225,23 +255,22 @@ class AegisTUI(App):
         for name in sorted(self.student_rows):
             row = self.student_rows[name]
             
+            # Avatar circle fallback (using first 2 letters)
+            initials = name[:2].upper() if name else "??"
+            avatar = f"[#0d0e12 on #9d6fff] {initials} [/]"
+            
             git_val = str(row.get("Git Forensic Anomaly", "-"))
-            git_fmt = f"[#00e676]{git_val}[/]" if git_val == "NO" else f"[bold #ff007f]{git_val}[/]"
-            
             fuzz_val = str(row.get("Fuzz/Gaming Anomaly", "-"))
-            fuzz_fmt = f"[#00e676]{fuzz_val}[/]" if fuzz_val == "PASSED" else f"[bold #ff007f]{fuzz_val}[/]"
-            
             flag_val = str(row.get("Integrity Flag", "-"))
-            flag_fmt = f"[bold #ff007f]⚠ {flag_val}[/]" if flag_val == "FLAGGED" else f"[bold #00e676]✓ {flag_val}[/]"
 
             table.add_row(
-                Text(f" {name} ", style="bold #ffffff"),
-                _status_text(row.get("Stage", "queued")),
-                _match_text(row.get("Max Plagiarism Match", "0.0%")),
-                Text.from_markup(git_fmt),
-                Text.from_markup(fuzz_fmt),
-                Text.from_markup(flag_fmt),
-                _grade_text(row.get("Adjusted Grade %", "0")),
+                Text.from_markup(f"{avatar} [bold white]{name}[/]"),
+                _status_badge(row.get("Stage", "queued")),
+                _match_column(row.get("Max Plagiarism Match", "0.0%")),
+                _bool_badge(git_val, "NO", "NO_REPO"),
+                _bool_badge(fuzz_val, "PASSED", "WARNING"),
+                _bool_badge(flag_val, "CLEAN"),
+                _grade_badge(row.get("Adjusted Grade %", "0")),
                 key=name,
             )
         self.refresh_summary()
@@ -262,13 +291,13 @@ class AegisTUI(App):
             except (TypeError, ValueError):
                 pass
         avg = f"{sum(grades) / len(grades):.1f}%" if grades else "-"
-        status = "[bold #00e676]ACTIVE[/]" if self.is_auditing else "[bold #00f0ff]STANDBY[/]"
+        status = "[bold #00e676]ACTIVE[/]" if self.is_auditing else "[bold #a1a1aa]STANDBY[/]"
         
         stats_text = (
-            f"[dim]SYSTEM STATUS:[/] {status}\n"
-            f"[dim]TARGETS SCANNED:[/] [bold white]{total}[/]\n"
-            f"[dim]INTEGRITY VIOLATIONS:[/] [bold #ff007f]{flagged}[/]\n"
-            f"[dim]MEAN ACCURACY:[/] [bold #00f0ff]{avg}[/]"
+            f"[dim]STATUS:[/] {status}  "
+            f"[dim]TARGETS:[/] [bold white]{total}[/]  "
+            f"[dim]FLAGGED:[/] [bold #ff007f]{flagged}[/]  "
+            f"[dim]AVG GRADE:[/] [bold #00d4c8]{avg}[/]"
         )
         self.query_one("#header-stats", Static).update(stats_text)
 
@@ -281,45 +310,66 @@ class AegisTUI(App):
         if not row:
             return
             
-        ai_match = row.get("AI Baseline Match", "-")
+        ai_match = row.get("AI Baseline Match", "0.0%")
         llm_flag = row.get("LLM Rewrite Flag", "-")
         git_anomaly = row.get("Git Forensic Anomaly", "-")
         fuzz = row.get("Fuzz/Gaming Anomaly", "-")
         integrity = row.get("Integrity Flag", "-")
         
+        # Color coding
         c_flag = "#ff007f" if integrity == "FLAGGED" else "#00e676"
-        c_ai = "#ff007f" if row.get("AI Flagged") == "YES" else "#00e676"
         c_llm = "#ff007f" if llm_flag == "YES" else "#00e676"
         c_git = "#00e676" if git_anomaly == "NO" else "#ff007f"
         c_fuzz = "#00e676" if fuzz == "PASSED" else "#ff007f"
         
-        panel_content = (
-            f"[bold #ffffff]TARGET:[/] [bold #00f0ff]{student.upper()}[/]\n"
-            f"[bold #ffffff]STAGE:[/] {row.get('Stage', '-').upper()}\n\n"
-            f"[bold #9d4edd]─── CODE METRICS ───────────────────────[/]\n"
-            f"[dim]LOC:[/] [white]{row.get('Lines of Code', '-')}[/]  |  [dim]FILES:[/] [white]{row.get('Files Scanned', '-')}[/]\n"
-            f"[dim]TESTS:[/] [white]{row.get('Test Score %', '-')}%[/] ({row.get('Tests Passed', '-')} / {row.get('Total Tests', '-')})\n\n"
-            f"[bold #9d4edd]─── FORENSIC ANALYSIS ──────────────────[/]\n"
-            f"[dim]PLAGIARISM MATCH:[/] [bold white]{row.get('Max Plagiarism Match', '-')}[/]\n"
-            f"[dim]AI BASELINE MATCH:[/] [bold {c_ai}]{ai_match}[/]\n"
-            f"[dim]LLM REWRITE FLAG:[/] [bold {c_llm}]{llm_flag}[/]\n"
-            f"[dim]GIT FORENSICS:[/] [bold {c_git}]{git_anomaly}[/]\n"
-            f"[dim]FUZZER STATUS:[/] [bold {c_fuzz}]{fuzz}[/]\n"
-            f"[dim]VIVA VOCE SCORE:[/] [bold white]{row.get('Viva Ownership Score', '-')}[/]\n\n"
-            f"[bold #9d4edd]─── FINAL VERDICT ──────────────────────[/]\n"
-            f"[dim]ADJUSTED GRADE:[/] [bold #00f0ff]{row.get('Adjusted Grade %', '-')}%[/]\n"
-            f"[dim]INTEGRITY OVERALL:[/] [bold {c_flag}]{integrity}[/]\n"
-        )
+        try:
+            plag_float = float(row.get("Max Plagiarism Match", "0").split("%")[0])
+        except:
+            plag_float = 0.0
         
-        if row.get("Git Notes"):
-            panel_content += f"\n[dim]GIT NOTES:[/] [white]{row['Git Notes']}[/]"
+        try:
+            ai_float = float(ai_match.split("%")[0])
+        except:
+            ai_float = 0.0
 
-        self.query_one("#detail", Static).update(Panel(
-            panel_content,
-            title=f"[bold #00f0ff]▤ DOSSIER: {student}[/]",
-            border_style="#9d4edd",
-            box=getattr(import_rich_box(), "SQUARE", None)
-        ))
+        # Construct the Dossier string using Rich markup
+        dossier = (
+            f"[bold white]TARGET:[/] [bold #00d4c8]{student}[/]\n"
+            f"[bold white]STAGE:[/] {row.get('Stage', '-').upper()}\n\n"
+            
+            f"[dim #9d6fff]━━ CODE METRICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]\n"
+            f"LOC: [white]{row.get('Lines of Code', '-')}[/]  |  FILES: [white]{row.get('Files Scanned', '-')}[/]\n"
+            f"TESTS: [bold white]{row.get('Test Score %', '-')}%[/] ({row.get('Tests Passed', '-')} / {row.get('Total Tests', '-')})\n\n"
+            
+            f"[dim #9d6fff]━━ FORENSIC ANALYSIS ━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]\n"
+            f"PLAGIARISM MATCH: [bold {'#ff007f' if plag_float > 50 else '#00d4c8'}]{row.get('Max Plagiarism Match', '-')}[/]\n"
+            f"AI BASELINE MATCH: [bold {'#ff007f' if ai_float > 50 else '#00d4c8'}]{ai_match}[/]\n"
+            f"LLM REWRITE FLAG: [bold {c_llm}]{llm_flag}[/]\n"
+            f"GIT FORENSICS: [bold {c_git}]{git_anomaly}[/]\n"
+            f"FUZZER STATUS: [bold {c_fuzz}]{fuzz}[/]\n"
+            f"VIVA VOCE SCORE: [bold white]{row.get('Viva Ownership Score', '-')}[/]\n\n"
+        )
+
+        if row.get("Git Notes"):
+            dossier += f"[dim]GIT NOTES:[/] [white]{row['Git Notes']}[/]\n\n"
+
+        # Final Verdict Box
+        bg_tint = "on #3a001e" if integrity == "FLAGGED" else ("on #002b16" if integrity == "CLEAN" else "")
+        verdict_text = (
+            f"[{bg_tint}]                                                  [/]\n"
+            f"[{bg_tint}]  [bold white]FINAL VERDICT[/]                                  [/]\n"
+            f"[{bg_tint}]  ADJUSTED GRADE: [bold #00d4c8]{row.get('Adjusted Grade %', '-')}%[/]                            [/]\n"
+            f"[{bg_tint}]  INTEGRITY OVERALL: [bold {c_flag}]{integrity}[/]                      [/]\n"
+            f"[{bg_tint}]                                                  [/]"
+        )
+
+        full_panel = Panel(
+            dossier + verdict_text,
+            title=f"[bold #9d6fff]■ DOSSIER: {student}[/]",
+            border_style="#1f2229",
+            padding=(1, 2)
+        )
+        self.query_one("#detail", Static).update(full_panel)
 
     def action_refresh(self) -> None:
         if self.is_auditing:
@@ -366,7 +416,7 @@ class AegisTUI(App):
                     self.student_rows[name] = {"Student": name, "Stage": "queued"}
             self.refresh_table()
             self.set_progress(0, max(total, 1), f"TARGET ACQUISITION: {total} HOSTS")
-            self.log_message(f"[bold #00f0ff]>[/] Target acquisition complete: {total} directories locked.")
+            self.log_message(f"[bold #00d4c8]>[/] Target acquisition complete: {total} directories locked.")
             return
 
         if event == "student_scan_started":
@@ -388,7 +438,7 @@ class AegisTUI(App):
                 "Stage": "scanned",
             })
             self.refresh_table()
-            self.log_message(f"[bold #9d4edd]>[/] Static scan complete: [white]{payload['student']}[/]")
+            self.log_message(f"[bold #9d6fff]>[/] Static scan complete: [white]{payload['student']}[/]")
             return
 
         if event == "similarity_pair_completed":
@@ -448,12 +498,7 @@ class AegisTUI(App):
             thread.start()
             self._web_thread_started = True
         webbrowser.open("http://localhost:8000")
-        self.log_message("[bold #00f0ff]>[/] Dashboard telemetry initialized on localhost:8000")
-
-
-def import_rich_box():
-    import rich.box
-    return rich.box
+        self.log_message("[bold #00d4c8]>[/] Dashboard telemetry initialized on localhost:8000")
 
 def launch_tui(submissions_dir: str = "test_submissions", config: dict | None = None, test_command: str | None = None, rubric_path: str = "rubric.md"):
     app = AegisTUI(submissions_dir=submissions_dir, config=config or {}, test_command=test_command, rubric_path=rubric_path)

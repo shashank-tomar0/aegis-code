@@ -8,6 +8,8 @@ setup(
         "google-generativeai",
         "colorama",
         "tabulate",
+        "textual>=0.70.0",
+        "rich>=13.0.0",
     ],
     entry_points={
         "console_scripts": [

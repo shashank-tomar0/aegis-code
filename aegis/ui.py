@@ -15,20 +15,20 @@ except Exception:
 
 # Dynamic Encoding Detection
 try:
-    # Test if stdout can encode standard unicode blocks
-    "─✔".encode(sys.stdout.encoding or "utf-8")
+    # Probe the actual glyphs we use so Windows code pages fall back cleanly.
+    "".join(["?", "-", "?", "?", "?", "?"]).encode(sys.stdout.encoding or "utf-8")
     supports_unicode = True
 except Exception:
     supports_unicode = False
 
 # Set Glyphs based on terminal capabilities
 if supports_unicode:
-    SPINNER_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    LINE_CHAR = "─"
-    SUCCESS_ICON = "✔"
-    WARNING_ICON = "⚠"
-    ERROR_ICON = "✖"
-    INFO_ICON = "ℹ"
+    SPINNER_CHARS = ["?", "?", "?", "?", "?", "?", "?", "?", "?", "?"]
+    LINE_CHAR = "-"
+    SUCCESS_ICON = "?"
+    WARNING_ICON = "?"
+    ERROR_ICON = "?"
+    INFO_ICON = "?"
 else:
     SPINNER_CHARS = ["|", "/", "-", "\\"]
     LINE_CHAR = "-"
@@ -110,3 +110,4 @@ def print_error(message):
 
 def print_info(message):
     print(f"{Fore.BLUE}{INFO_ICON} {Fore.WHITE}{message}")
+

@@ -1,5 +1,6 @@
 import os
 import csv
+import json
 import subprocess
 from aegis.ast_analyzer import analyze_file
 from aegis.winnowing import get_file_fingerprints, compute_similarity
@@ -8,6 +9,11 @@ from aegis.viva_agent import verify_receipt, get_gemini_client
 from colorama import Fore, Style
 from aegis.ui import Spinner, print_success, print_warning, print_error, print_info
 from aegis.fuzzer import inspect_hardcoding, dynamic_fuzz_test
+
+
+def _emit_progress(progress_callback, event, **payload):
+    if progress_callback:
+        progress_callback(event, payload)
 
 
 def scan_student_code(student_dir):
@@ -141,6 +147,9 @@ Generate a feedback report in Markdown format. Outline:
 4. Next Steps for learning.
 Keep the tone encouraging yet rigorous.
 """
+    if not config.get("api_key"):
+        return f"# Feedback for {student_name}\n\nGemini API key is not configured, so AI feedback was skipped."
+
     try:
         client = get_gemini_client(config["api_key"])
         model = client.GenerativeModel(config["model_name"])
@@ -149,22 +158,27 @@ Keep the tone encouraging yet rigorous.
     except Exception as e:
         return f"# Feedback for {student_name}\n\nFailed to generate AI feedback: {e}"
 
-def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_path="rubric.md"):
+def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_path="rubric.md", progress_callback=None):
     """Runs the full grading, similarity matching, git forensics, and receipt checking pipeline."""
     if not os.path.exists(submissions_dir):
         print_error(f"Submissions directory '{submissions_dir}' does not exist.")
+        _emit_progress(progress_callback, "error", message=f"Submissions directory '{submissions_dir}' does not exist.")
         return False
         
     students = [d for d in os.listdir(submissions_dir) if os.path.isdir(os.path.join(submissions_dir, d))]
     
     if not students:
         print_warning(f"No student subdirectories found in '{submissions_dir}'.")
+        _emit_progress(progress_callback, "error", message=f"No student subdirectories found in '{submissions_dir}'.")
         return False
+
+    _emit_progress(progress_callback, "pipeline_started", total_students=len(students), submissions_dir=submissions_dir)
 
     student_data = {}
     with Spinner("Scanning student repositories & mining Git history..."):
-        for student in students:
+        for index, student in enumerate(students, start=1):
             student_dir = os.path.join(submissions_dir, student)
+            _emit_progress(progress_callback, "student_scan_started", student=student, index=index, total=len(students))
             code_report = scan_student_code(student_dir)
             git_report = analyze_git_history(student_dir)
             
@@ -223,25 +237,55 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
                 "hardcode_count": hardcode_count,
                 "constants_checked": constants_checked
             }
+            _emit_progress(
+                progress_callback,
+                "student_scan_completed",
+                student=student,
+                index=index,
+                total=len(students),
+                files_scanned=len(code_report["files_scanned"]),
+                lines_of_code=code_report["lines_count"],
+                fuzz_anomaly=fuzz_anomaly,
+                git_repo=git_report["is_git_repo"],
+                git_anomalies=list(git_report["anomalies"]),
+                viva_verified=viva_verified,
+                viva_score=viva_score,
+            )
 
     # Cross-match students for plagiarism
     with Spinner("Computing AST Winnowing similarity matrix..."):
         similarity_matrix = {}
-        for s1 in students:
+        total_pairs = max(len(students) * (len(students) - 1) // 2, 1)
+        pair_index = 0
+        for i, s1 in enumerate(students):
             similarity_matrix[s1] = {"max_jaccard": 0.0, "match_partner": None, "max_containment": 0.0}
-            for s2 in students:
-                if s1 == s2:
-                    continue
+            for s2 in students[i + 1:]:
+                pair_index += 1
                 sim = compute_similarity(student_data[s1]["fingerprints"], student_data[s2]["fingerprints"])
                 if sim["jaccard"] > similarity_matrix[s1]["max_jaccard"]:
                     similarity_matrix[s1]["max_jaccard"] = sim["jaccard"]
                     similarity_matrix[s1]["max_containment"] = sim["containment"]
                     similarity_matrix[s1]["match_partner"] = s2
+                similarity_matrix.setdefault(s2, {"max_jaccard": 0.0, "match_partner": None, "max_containment": 0.0})
+                if sim["jaccard"] > similarity_matrix[s2]["max_jaccard"]:
+                    similarity_matrix[s2]["max_jaccard"] = sim["jaccard"]
+                    similarity_matrix[s2]["max_containment"] = sim["containment"]
+                    similarity_matrix[s2]["match_partner"] = s1
+                _emit_progress(
+                    progress_callback,
+                    "similarity_pair_completed",
+                    student_a=s1,
+                    student_b=s2,
+                    similarity=sim["jaccard"],
+                    pair_index=pair_index,
+                    total_pairs=total_pairs,
+                )
 
     # Run tests and write feedback
     results = []
-    for student in students:
+    for index, student in enumerate(students, start=1):
         data = student_data[student]
+        _emit_progress(progress_callback, "student_grade_started", student=student, index=index, total=len(students))
         
         with Spinner(f"Grading {Fore.CYAN}{student}{Fore.WHITE} (running tests & generating feedback)..."):
             # Run tests
@@ -303,6 +347,16 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
             "Integrity Flag": "FLAGGED" if integrity_flag else "CLEAN",
             "Adjusted Grade %": f"{final_grade:.1f}"
         })
+        _emit_progress(
+            progress_callback,
+            "student_grade_completed",
+            student=student,
+            index=index,
+            total=len(students),
+            result=results[-1],
+            test_output=test_report.get("output", ""),
+            feedback_path=feedback_file,
+        )
 
     # Output grades.csv
     csv_file = "grades.csv"
@@ -314,7 +368,7 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
         print_success(f"Unified Grade Sheet compiled successfully to {Fore.GREEN}{csv_file}")
     except Exception as e:
         print_error(f"Failed to write {csv_file}: {e}")
+        _emit_progress(progress_callback, "error", message=f"Failed to write {csv_file}: {e}")
 
+    _emit_progress(progress_callback, "pipeline_completed", total_students=len(results), results=results, csv_file=csv_file)
     return results
-
-import json

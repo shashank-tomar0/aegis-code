@@ -324,6 +324,49 @@ def clone_command(args):
                 lines.append(border)
                 print("\n" + "\n".join(lines) + "\n")
 
+def baseline_command(args):
+    """Generate or list AI plagiarism baseline banks."""
+    config = load_config()
+    print_banner()
+
+    from aegis.baseline import generate_baselines, list_baselines
+
+    action = args.baseline_action
+
+    if action == "generate":
+        prompt = args.prompt
+        count = args.count
+        lang = args.lang
+        print_section("GENERATING AI BASELINE BANK")
+        print_info(f"Prompt: {prompt}")
+        print_info(f"Generating {count} variations in {lang}...")
+
+        from aegis.ui import Spinner
+        with Spinner(f"Calling Gemini API ({count} variations)..."):
+            result = generate_baselines(config, prompt, count=count, lang=lang)
+
+        if "error" in result:
+            print_error(result["error"])
+            sys.exit(1)
+
+        ok = sum(1 for s in result["solutions"] if "code" in s)
+        print_success(f"Generated {ok}/{count} solutions. Fingerprint union: {len(result['union_fingerprints'])} hashes.")
+        print_info(f"Saved to .aegis_baselines/{result['key']}.json")
+
+    elif action == "list":
+        print_section("SAVED AI BASELINE BANKS")
+        banks = list_baselines()
+        if not banks:
+            print_warning("No baseline banks found. Run 'aegis baseline generate' first.")
+            return
+        for b in banks:
+            print(f"  {Fore.CYAN}{b['key']}{Style.RESET_ALL}  |  "
+                  f"{Fore.WHITE}{b['variations']} variations{Style.RESET_ALL}  |  "
+                  f"{b['lang']}  |  "
+                  f"{Fore.YELLOW}{b['prompt'][:60]}...{Style.RESET_ALL}")
+    else:
+        print_error(f"Unknown baseline action: {action}")
+
 def main():
     parser = argparse.ArgumentParser(
         description="AegisCode: AI-Age Code Integrity & Vetting Agent"
@@ -361,6 +404,15 @@ def main():
     clone_parser.add_argument("repo_source", type=str, help="Path to file containing GitHub URLs, or a single repository URL")
     clone_parser.add_argument("--dest", type=str, default="test_submissions", help="Directory to clone repositories into")
     clone_parser.add_argument("--audit", action="store_true", help="Automatically run audit on cloned repositories")
+
+    # Baseline subcommand
+    baseline_parser = subparsers.add_parser("baseline", help="Manage AI plagiarism baseline banks")
+    baseline_sub = baseline_parser.add_subparsers(dest="baseline_action")
+    gen_p = baseline_sub.add_parser("generate", help="Generate AI solution baselines for an assignment")
+    gen_p.add_argument("prompt", type=str, help="Assignment description / problem statement")
+    gen_p.add_argument("--count", type=int, default=8, help="Number of Gemini solution variations to generate")
+    gen_p.add_argument("--lang", type=str, default="python", help="Programming language (default: python)")
+    baseline_sub.add_parser("list", help="List all saved baseline banks")
     
     args = parser.parse_args()
     
@@ -376,6 +428,8 @@ def main():
         tui_command(args)
     elif args.command == "clone":
         clone_command(args)
+    elif args.command == "baseline":
+        baseline_command(args)
     else:
         parser.print_help()
 

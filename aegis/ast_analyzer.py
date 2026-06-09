@@ -99,3 +99,29 @@ def analyze_file(filepath):
         "functions": functions,
         "lines_count": len(source_lines)
     }
+
+def analyze_file_from_source(source: str) -> tuple[list, list]:
+    """
+    Parses a raw Python source string (not a file) and returns:
+    - tokens: normalized AST token list
+    - functions: list of function complexity dicts
+    Used by the baseline bank to fingerprint Gemini-generated solutions.
+    """
+    try:
+        tree = ast.parse(source, filename="<generated>")
+    except SyntaxError:
+        return [], []
+
+    serializer = ASTSerializer()
+    serializer.visit(tree)
+
+    complexity_visitor = ComplexityVisitor()
+    complexity_visitor.visit(tree)
+
+    source_lines = source.splitlines()
+    for fn in complexity_visitor.functions:
+        start = max(0, fn["start_line"] - 1)
+        end = min(len(source_lines), fn["end_line"])
+        fn["source_code"] = "\n".join(source_lines[start:end])
+
+    return serializer.tokens, complexity_visitor.functions

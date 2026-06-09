@@ -19,12 +19,11 @@ from textual.widgets import DataTable, Footer, ProgressBar, RichLog, Static
 CSS = """
 Screen {
     background: #0d0e12;
-    font-family: "JetBrains Mono", "Fira Code", monospace;
 }
 
 /* App Header styling (macOS dots + Split Logotype) */
 #header-panel {
-    height: 4;
+    height: 6;
     background: #0d0e12;
     border-bottom: solid #1f2229;
     padding: 1 2;
@@ -211,7 +210,13 @@ class AegisTUI(App):
     def compose(self) -> ComposeResult:
         with Horizontal(id="header-panel"):
             yield Static("[#ff5f56]●[/] [#ffbd2e]●[/] [#27c93f]●[/]", id="traffic-lights")
-            yield Static("[bold #00d4c8]AEGIS[/][bold #9d6fff]CODE[/]", id="header-title")
+            ascii_logo = (
+                r"[bold #00d4c8]   __ _  ___  ___ _(_)__[/]  [bold #9d6fff]/ ___/___  ___/ /__[/]" + "\n"
+                r"[bold #00d4c8]  / _` |/ -_)/ _ `/ /(_-<[/][bold #9d6fff]/ /__ / _ \/ _  // -_)[/]" + "\n"
+                r"[bold #00d4c8]  \_,_| \__/ \_, /_//___/[/][bold #9d6fff]\___/ \___/\_,_/ \__/[/]" + "\n"
+                r"[bold #00d4c8]            /___/        [/]"
+            )
+            yield Static(ascii_logo, id="header-title", markup=True)
             yield Static("STATS WAITING...", id="header-stats")
             
         with Horizontal(id="body"):

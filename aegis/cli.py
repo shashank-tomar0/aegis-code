@@ -8,6 +8,7 @@ from aegis.config import load_config, save_config, DEFAULT_CONFIG
 from aegis.ast_analyzer import analyze_file
 from aegis.viva_agent import run_interactive_viva
 from aegis.grading import execute_grading_pipeline, scan_student_code
+from aegis.ui import print_banner, print_section, print_success, print_warning, print_error, print_info, Spinner
 
 # Initialize colorama
 init(autoreset=True)
@@ -30,35 +31,37 @@ DEFAULT_RUBRIC = """# Homework Rubric
 
 def init_command(args):
     """Initializes the local aegis.json configuration and rubric.md template."""
-    print(f"{Fore.CYAN}Initializing AegisCode workspace...")
+    print_banner()
+    print_section("INITIALIZING WORKSPACE")
     
     # Save default config if not exists
     if not os.path.exists("aegis.json"):
         save_config(DEFAULT_CONFIG)
-        print(f"Created configuration file: {Fore.GREEN}aegis.json")
+        print_success("Created configuration file: aegis.json")
     else:
-        print(f"{Fore.YELLOW}aegis.json already exists. Skipping.")
+        print_warning("aegis.json already exists. Skipping.")
         
     # Save default rubric if not exists
     if not os.path.exists("rubric.md"):
         try:
             with open("rubric.md", "w", encoding="utf-8") as f:
                 f.write(DEFAULT_RUBRIC)
-            print(f"Created grading rubric template: {Fore.GREEN}rubric.md")
+            print_success("Created grading rubric template: rubric.md")
         except Exception as e:
-            print(f"{Fore.RED}Failed to create rubric.md: {e}")
+            print_error(f"Failed to create rubric.md: {e}")
     else:
-        print(f"{Fore.YELLOW}rubric.md already exists. Skipping.")
+        print_warning("rubric.md already exists. Skipping.")
         
-    print(f"\n{Fore.GREEN}{Style.BRIGHT}Workspace initialized! Adjust settings in aegis.json and rubric.md.")
+    print(f"\n{Fore.GREEN}{Style.BRIGHT}✔ Workspace initialized! Adjust settings in aegis.json and rubric.md.")
 
 def vet_command(args):
     """Runs the interactive Viva Voce vetting interview in the student's repository."""
+    print_banner()
     config = load_config()
     
     if not config.get("api_key"):
-        print(f"{Fore.RED}Error: Gemini API Key is missing.")
-        print(f"{Fore.YELLOW}Please set the GEMINI_API_KEY environment variable or write it to aegis.json.")
+        print_error("Gemini API Key is missing.")
+        print_warning("Please set the GEMINI_API_KEY environment variable or write it to aegis.json.")
         sys.exit(1)
 
     target_dir = args.dir or "."
@@ -66,19 +69,20 @@ def vet_command(args):
     # Prompt for student name if not provided
     student_name = args.student
     if not student_name:
-        print(f"{Fore.CYAN}Please enter your Full Name: ", end="", flush=True)
+        sys.stdout.write(f"{Fore.CYAN}Please enter your Full Name: {Style.RESET_ALL}")
+        sys.stdout.flush()
         student_name = input().strip()
         if not student_name:
-            print(f"{Fore.RED}Student name cannot be empty.")
+            print_error("Student name cannot be empty.")
             sys.exit(1)
 
     # Scan python files
-    print(f"{Fore.BLUE}Scanning files for coding structures in {os.path.abspath(target_dir)}...")
-    code_report = scan_student_code(target_dir)
+    with Spinner("Scanning files for coding structures..."):
+        code_report = scan_student_code(target_dir)
     
     if not code_report["functions"]:
-        print(f"{Fore.RED}Error: No functions found to analyze in {target_dir}.")
-        print("Please ensure your Python source files contain function definitions.")
+        print_error(f"No functions found to analyze in {target_dir}.")
+        print_info("Please ensure your Python source files contain function definitions.")
         sys.exit(1)
 
     # Run the interactive Viva
@@ -90,15 +94,16 @@ def vet_command(args):
         try:
             with open(receipt_path, "w", encoding="utf-8") as f:
                 json.dump(receipt, f, indent=4)
-            print(f"{Fore.GREEN}{Style.BRIGHT}Vetting Complete! signed receipt generated at {receipt_path}")
-            print(f"Ensure this receipt file is included in your submission.")
+            print_success(f"Vetting Complete! Signed receipt generated at {receipt_path}")
+            print_info("Ensure this receipt file is included in your final submission.")
         except Exception as e:
-            print(f"{Fore.RED}Failed to save receipt file: {e}")
+            print_error(f"Failed to save receipt file: {e}")
     else:
-        print(f"{Fore.RED}Vetting failed. No receipt generated.")
+        print_error("Vetting failed. No receipt generated.")
 
 def audit_command(args):
     """Runs the teacher grading and plagiarism audit on submissions."""
+    print_banner()
     config = load_config()
     
     # Setup test runner command
@@ -110,12 +115,10 @@ def audit_command(args):
     submissions_dir = args.submissions_dir
     
     if not submissions_dir:
-        print(f"{Fore.RED}Error: Submissions directory is required.")
+        print_error("Submissions directory is required.")
         sys.exit(1)
         
-    print(f"{Fore.CYAN}{Style.BRIGHT}==========================================")
-    print(f"{Fore.CYAN}{Style.BRIGHT}     AEGISCODE GRADING & AUDIT PIPELINE   ")
-    print(f"{Fore.CYAN}{Style.BRIGHT}==========================================\n")
+    print_section("AUDIT & GRADING PIPELINE")
     
     results = execute_grading_pipeline(config, submissions_dir, test_command, rubric_path)
     

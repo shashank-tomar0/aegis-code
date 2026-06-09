@@ -4,6 +4,7 @@ import hashlib
 from datetime import datetime
 import google.generativeai as genai
 from colorama import Fore, Style, init
+from aegis.ui import Spinner, type_print, print_section, print_success, print_warning, print_error, print_info
 
 # Initialize colorama
 init(autoreset=True)
@@ -164,56 +165,59 @@ def verify_receipt(receipt_path):
 
 def run_interactive_viva(config, student_name, fn_list, repo_path):
     """Runs the terminal-based Q&A loop with the student."""
-    print(f"\n{Fore.CYAN}{Style.BRIGHT}==========================================")
-    print(f"{Fore.CYAN}{Style.BRIGHT}    AEGISCODE INTERACTIVE VIVA-VOCE       ")
-    print(f"{Fore.CYAN}{Style.BRIGHT}==========================================\n")
+    import sys
+    print_section("AEGIS INTERACTIVE VETTING AGENT")
     
     if not fn_list:
-        print(f"{Fore.YELLOW}Warning: No functions detected in your source files to vet.")
+        print_warning("No functions detected in your source files to vet.")
         return None
 
     # Filter out functions with very low complexity
     fn_list = [f for f in fn_list if f["complexity"] >= 2]
     if not fn_list:
-        print(f"{Fore.YELLOW}All functions in the submission are low-complexity. Skipping Viva.")
-        # Return a auto-pass receipt
+        print_warning("All functions in the submission are low-complexity. Skipping Viva.")
+        # Return an auto-pass receipt
         receipt = generate_signed_receipt(student_name, 100, "Automatic pass due to simple code structure.", repo_path)
         return receipt
         
     # Pick the highest complexity function
     target_fn = fn_list[0]
     
-    print(f"Candidate Function identified for Vetting: {Fore.GREEN}{target_fn['name']}")
-    print(f"Cyclomatic Complexity Index: {Fore.YELLOW}{target_fn['complexity']}\n")
+    print_info(f"Target function: {Fore.GREEN}{Style.BRIGHT}{target_fn['name']} {Fore.WHITE}(Complexity: {Fore.YELLOW}{target_fn['complexity']}{Fore.WHITE})")
+    print()
     
     try:
         client = get_gemini_client(config["api_key"])
     except ValueError as e:
-        print(f"{Fore.RED}Error: {e}")
+        print_error(str(e))
         return None
 
-    print(f"{Fore.BLUE}Contacting Aegis Vetting Agent to generate questions...")
-    questions = generate_viva_questions(client, config["model_name"], target_fn["name"], target_fn["source_code"])
+    with Spinner("Contacting Vetting Agent and generating questions..."):
+        questions = generate_viva_questions(client, config["model_name"], target_fn["name"], target_fn["source_code"])
     
     qas = []
-    print(f"\n{Fore.GREEN}Vetting Agent: Hello {student_name}. I have analyzed your code.")
-    print("Please answer the following conceptual questions about your implementation.\n")
+    print()
+    type_print(f"Vetting Agent: Hello {student_name}. I have analyzed your codebase.", color=Fore.GREEN)
+    type_print("Please answer the following conceptual questions to verify code ownership.", color=Fore.GREEN)
+    print()
     
     for idx, q in enumerate(questions, 1):
-        print(f"{Fore.WHITE}{Style.BRIGHT}[Question {idx}/2] {q}")
-        print(f"{Fore.CYAN}Your Answer: ", end="", flush=True)
+        type_print(f"[Question {idx}/2] {q}", color=Fore.WHITE + Style.BRIGHT)
+        sys.stdout.write(f"{Fore.CYAN}Your Answer: {Style.RESET_ALL}")
+        sys.stdout.flush()
         answer = input()
         qas.append((q, answer))
         print()
         
-    print(f"{Fore.BLUE}Evaluating answers with Vetting Agent...")
-    score, justification = evaluate_viva_answers(client, config["model_name"], target_fn["name"], target_fn["source_code"], qas)
+    with Spinner("Vetting Agent: Evaluating your answers..."):
+        score, justification = evaluate_viva_answers(client, config["model_name"], target_fn["name"], target_fn["source_code"], qas)
     
-    print(f"\n{Fore.CYAN}{Style.BRIGHT}==========================================")
-    print(f"{Fore.GREEN}{Style.BRIGHT}VIVA EVALUATION COMPLETE")
-    print(f"{Fore.CYAN}Ownership Score: {Fore.YELLOW}{Style.BRIGHT}{score}%")
-    print(f"{Fore.CYAN}Evaluation: {Fore.WHITE}{justification}")
-    print(f"{Fore.CYAN}{Style.BRIGHT}==========================================\n")
+    print_section("VIVA EVALUATION RESULTS")
+    if score >= 70:
+        print_success(f"Ownership Score: {Fore.GREEN}{Style.BRIGHT}{score}%")
+    else:
+        print_warning(f"Ownership Score: {Fore.RED}{Style.BRIGHT}{score}%")
+    print_info(f"Justification: {Fore.WHITE}{justification}\n")
     
     receipt = generate_signed_receipt(student_name, score, justification, repo_path)
     return receipt

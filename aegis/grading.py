@@ -6,6 +6,7 @@ from aegis.winnowing import get_file_fingerprints, compute_similarity
 from aegis.git_forensics import analyze_git_history
 from aegis.viva_agent import verify_receipt, get_gemini_client
 from colorama import Fore, Style
+from aegis.ui import Spinner, print_success, print_warning, print_error, print_info
 
 def scan_student_code(student_dir):
     """Scans all Python files in a student's folder and aggregates AST tokens and functions."""
@@ -149,83 +150,82 @@ Keep the tone encouraging yet rigorous.
 def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_path="rubric.md"):
     """Runs the full grading, similarity matching, git forensics, and receipt checking pipeline."""
     if not os.path.exists(submissions_dir):
-        print(f"{Fore.RED}Error: Submissions directory {submissions_dir} does not exist.")
+        print_error(f"Submissions directory '{submissions_dir}' does not exist.")
         return False
         
     students = [d for d in os.listdir(submissions_dir) if os.path.isdir(os.path.join(submissions_dir, d))]
     
     if not students:
-        print(f"{Fore.YELLOW}No student subdirectories found in {submissions_dir}.")
+        print_warning(f"No student subdirectories found in '{submissions_dir}'.")
         return False
 
-    print(f"{Fore.CYAN}Scanning student codebases...")
     student_data = {}
-    for student in students:
-        student_dir = os.path.join(submissions_dir, student)
-        code_report = scan_student_code(student_dir)
-        git_report = analyze_git_history(student_dir)
-        
-        # Winnowing fingerprints
-        fp = get_file_fingerprints(code_report["tokens"], config["k_gram"], config["window_size"])
-        
-        # Check for receipt
-        receipt_path = os.path.join(student_dir, ".aegis_vet_receipt")
-        viva_verified, viva_msg = verify_receipt(receipt_path)
-        
-        # Load score from receipt if verified
-        viva_score = 100
-        if viva_verified:
-            try:
-                with open(receipt_path, "r") as f:
-                    receipt_data = json.load(f)
-                    viva_score = int(receipt_data.get("ownership_score", 100))
-            except Exception:
-                pass
-        
-        student_data[student] = {
-            "dir": student_dir,
-            "code": code_report,
-            "git": git_report,
-            "fingerprints": fp,
-            "viva_verified": viva_verified,
-            "viva_score": viva_score,
-            "viva_msg": viva_msg
-        }
+    with Spinner("Scanning student repositories & mining Git history..."):
+        for student in students:
+            student_dir = os.path.join(submissions_dir, student)
+            code_report = scan_student_code(student_dir)
+            git_report = analyze_git_history(student_dir)
+            
+            # Winnowing fingerprints
+            fp = get_file_fingerprints(code_report["tokens"], config["k_gram"], config["window_size"])
+            
+            # Check for receipt
+            receipt_path = os.path.join(student_dir, ".aegis_vet_receipt")
+            viva_verified, viva_msg = verify_receipt(receipt_path)
+            
+            # Load score from receipt if verified
+            viva_score = 100
+            if viva_verified:
+                try:
+                    with open(receipt_path, "r") as f:
+                        receipt_data = json.load(f)
+                        viva_score = int(receipt_data.get("ownership_score", 100))
+                except Exception:
+                    pass
+            
+            student_data[student] = {
+                "dir": student_dir,
+                "code": code_report,
+                "git": git_report,
+                "fingerprints": fp,
+                "viva_verified": viva_verified,
+                "viva_score": viva_score,
+                "viva_msg": viva_msg
+            }
 
     # Cross-match students for plagiarism
-    print(f"{Fore.CYAN}Computing Jaccard & Containment similarity matrix...")
-    similarity_matrix = {}
-    for s1 in students:
-        similarity_matrix[s1] = {"max_jaccard": 0.0, "match_partner": None, "max_containment": 0.0}
-        for s2 in students:
-            if s1 == s2:
-                continue
-            sim = compute_similarity(student_data[s1]["fingerprints"], student_data[s2]["fingerprints"])
-            if sim["jaccard"] > similarity_matrix[s1]["max_jaccard"]:
-                similarity_matrix[s1]["max_jaccard"] = sim["jaccard"]
-                similarity_matrix[s1]["max_containment"] = sim["containment"]
-                similarity_matrix[s1]["match_partner"] = s2
+    with Spinner("Computing AST Winnowing similarity matrix..."):
+        similarity_matrix = {}
+        for s1 in students:
+            similarity_matrix[s1] = {"max_jaccard": 0.0, "match_partner": None, "max_containment": 0.0}
+            for s2 in students:
+                if s1 == s2:
+                    continue
+                sim = compute_similarity(student_data[s1]["fingerprints"], student_data[s2]["fingerprints"])
+                if sim["jaccard"] > similarity_matrix[s1]["max_jaccard"]:
+                    similarity_matrix[s1]["max_jaccard"] = sim["jaccard"]
+                    similarity_matrix[s1]["max_containment"] = sim["containment"]
+                    similarity_matrix[s1]["match_partner"] = s2
 
     # Run tests and write feedback
     results = []
     for student in students:
-        print(f"\n{Fore.GREEN}Grading student: {student}")
         data = student_data[student]
         
-        # Run tests
-        test_report = run_student_tests(data["dir"], test_command)
-        
-        # Run AI feedback
-        feedback = generate_ai_feedback(config, student, data["code"], test_report, rubric_path)
-        
-        # Write feedback file inside student's directory
-        feedback_file = os.path.join(data["dir"], "feedback.md")
-        try:
-            with open(feedback_file, "w", encoding="utf-8") as f:
-                f.write(feedback)
-            print(f"Feedback report written to {feedback_file}")
-        except Exception as e:
-            print(f"{Fore.RED}Failed to write feedback: {e}")
+        with Spinner(f"Grading {Fore.CYAN}{student}{Fore.WHITE} (running tests & generating feedback)..."):
+            # Run tests
+            test_report = run_student_tests(data["dir"], test_command)
+            
+            # Run AI feedback
+            feedback = generate_ai_feedback(config, student, data["code"], test_report, rubric_path)
+            
+            # Write feedback file inside student's directory
+            feedback_file = os.path.join(data["dir"], "feedback.md")
+            try:
+                with open(feedback_file, "w", encoding="utf-8") as f:
+                    f.write(feedback)
+            except Exception as e:
+                print_error(f"Failed to write feedback for {student}: {e}")
 
         # Compute grade details
         max_sim = similarity_matrix[student]
@@ -278,9 +278,9 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
             writer = csv.DictWriter(f, fieldnames=results[0].keys())
             writer.writeheader()
             writer.writerows(results)
-        print(f"\n{Fore.GREEN}{Style.BRIGHT}Unified Grade Sheet compiled successfully to {csv_file}")
+        print_success(f"Unified Grade Sheet compiled successfully to {Fore.GREEN}{csv_file}")
     except Exception as e:
-        print(f"{Fore.RED}Failed to write {csv_file}: {e}")
+        print_error(f"Failed to write {csv_file}: {e}")
 
     return results
 

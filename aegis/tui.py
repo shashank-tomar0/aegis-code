@@ -5,61 +5,115 @@ import webbrowser
 from typing import ClassVar
 
 from rich.text import Text
+from rich.panel import Panel
+from rich.align import Align
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
-from textual.widgets import DataTable, Footer, Header, ProgressBar, RichLog, Static
+from textual.containers import Horizontal, Vertical, Container
+from textual.widgets import DataTable, Footer, ProgressBar, RichLog, Static
 
 
 CSS = """
 Screen {
-    background: #111318;
+    background: #09090b;
 }
 
-#summary {
-    height: 3;
-    padding: 0 1;
-    color: #d7dae0;
-    background: #1a1f29;
-    border-bottom: solid #2d3442;
-}
-
-#body {
-    height: 1fr;
-}
-
-#table-panel {
-    width: 58;
-    border-right: solid #2d3442;
-}
-
-#detail-panel {
-    width: 1fr;
+/* Custom Header styling */
+#header-panel {
+    height: 6;
+    background: #09090b;
+    border-bottom: heavy #00f0ff;
     padding: 1 2;
 }
 
+#header-title {
+    color: #9d4edd;
+    text-style: bold;
+    content-align: left middle;
+}
+
+#header-stats {
+    color: #a1a1aa;
+    text-align: right;
+    content-align: right middle;
+}
+
+/* Main Layout */
+#body {
+    height: 1fr;
+    background: #09090b;
+}
+
+#table-container {
+    width: 65%;
+    border-right: vkey #27272a;
+    background: #09090b;
+}
+
+#detail-container {
+    width: 35%;
+    padding: 1 2;
+    background: #050505;
+}
+
+/* Data Table */
+DataTable {
+    background: #09090b;
+    color: #e4e4e7;
+}
+
+DataTable > .datatable--header {
+    background: #18181b;
+    color: #00f0ff;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: #9d4edd 30%;
+    color: #ffffff;
+    text-style: bold;
+}
+
+/* Detail Panel */
 #detail {
     height: 1fr;
-    border: round #2d3442;
-    padding: 1 1;
+    background: #050505;
+    color: #d4d4d8;
+    border: ascii #00f0ff;
+    padding: 1 2;
+}
+
+/* Progress & Logs */
+#bottom-container {
+    height: 14;
+    border-top: heavy #00f0ff;
+    background: #09090b;
 }
 
 #progress-panel {
-    height: 4;
-    padding: 0 1;
-    background: #1a1f29;
-    border-top: solid #2d3442;
+    height: 3;
+    padding: 1 2;
+    background: #18181b;
 }
 
 #progress-label {
     height: 1;
-    color: #d7dae0;
+    color: #00f0ff;
+    text-style: bold;
 }
 
 #log {
-    height: 10;
-    border-top: solid #2d3442;
+    height: 1fr;
+    background: #000000;
+    color: #a1a1aa;
+    border: none;
+    padding: 0 1;
+}
+
+Footer {
+    background: #18181b;
+    color: #00e676;
 }
 """
 
@@ -68,9 +122,9 @@ def _grade_text(value: str) -> Text:
     try:
         grade = float(value)
     except (TypeError, ValueError):
-        return Text(str(value or "-"))
-    color = "green" if grade >= 80 else "yellow" if grade >= 50 else "red"
-    return Text(f"{grade:.1f}%", style=f"bold {color}")
+        return Text(str(value or "-"), style="dim white")
+    color = "#00e676" if grade >= 80 else "#ffb703" if grade >= 50 else "#ff007f"
+    return Text(f" {grade:.1f}% ", style=f"bold {color}")
 
 
 def _match_text(value: str) -> Text:
@@ -78,33 +132,32 @@ def _match_text(value: str) -> Text:
     try:
         pct = float(text.split("%")[0])
     except (TypeError, ValueError, IndexError):
-        return Text(text)
-    color = "red" if pct >= 70 else "yellow" if pct >= 40 else "cyan"
-    return Text(text, style=color)
+        return Text(text, style="dim white")
+    color = "#ff007f" if pct >= 70 else "#ffb703" if pct >= 40 else "#00f0ff"
+    return Text(f" {text} ", style=f"bold {color}")
 
 
 def _status_text(stage: str) -> Text:
     palette = {
-        "queued": "white",
-        "scanning": "yellow",
-        "scanned": "cyan",
-        "comparing": "magenta",
-        "grading": "yellow",
-        "graded": "green",
-        "error": "red",
+        "queued": "#71717a",
+        "scanning": "#ffb703",
+        "scanned": "#00f0ff",
+        "comparing": "#9d4edd",
+        "grading": "#ffb703",
+        "graded": "#00e676",
+        "error": "#ff007f",
     }
-    return Text(stage.upper(), style=f"bold {palette.get(stage, 'white')}")
+    return Text(f" ◉ {stage.upper()} ", style=f"bold {palette.get(stage, '#ffffff')}")
 
 
 class AegisTUI(App):
     CSS = CSS
     TITLE = "AegisCode"
-    SUB_TITLE = "Live audit dashboard"
     BINDINGS: ClassVar[list[Binding]] = [
-        Binding("a", "run_audit", "Run Audit"),
-        Binding("r", "refresh", "Reload CSV"),
-        Binding("w", "open_web", "Open Web"),
-        Binding("q", "quit", "Quit"),
+        Binding("a", "run_audit", "🚀 Run Audit"),
+        Binding("r", "refresh", "🔄 Reload CSV"),
+        Binding("w", "open_web", "🌐 Open Web UI"),
+        Binding("q", "quit", "❌ Quit"),
     ]
 
     def __init__(self, submissions_dir: str = "test_submissions", config: dict | None = None, test_command: str | None = None, rubric_path: str = "rubric.md"):
@@ -119,23 +172,37 @@ class AegisTUI(App):
         self._web_thread_started = False
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
-        yield Static("Waiting for audit data.", id="summary")
+        with Horizontal(id="header-panel"):
+            yield Static(
+                "█████╗ ███████╗ ██████╗ ██╗███████╗ ██████╗ ██████╗ ██████╗ ███████╗\n"
+                "██╔══██╗██╔════╝██╔════╝ ██║██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝\n"
+                "███████║█████╗  ██║  ███╗██║███████╗██║     ██║   ██║██║  ██║█████╗  \n"
+                "██╔══██║██╔══╝  ██║   ██║██║╚════██║██║     ██║   ██║██║  ██║██╔══╝  \n"
+                "██║  ██║███████╗╚██████╔╝██║███████║╚██████╗╚██████╔╝██████╔╝███████╗\n"
+                "╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝",
+                id="header-title"
+            )
+            yield Static("STATS WAITING...", id="header-stats")
+            
         with Horizontal(id="body"):
-            with Vertical(id="table-panel"):
+            with Vertical(id="table-container"):
                 yield DataTable(id="students", cursor_type="row", zebra_stripes=True)
-            with Vertical(id="detail-panel"):
-                yield Static("Select a student to inspect details.", id="detail")
-        with Vertical(id="progress-panel"):
-            yield Static("Idle", id="progress-label")
-            yield ProgressBar(id="progress", total=1, show_eta=False)
-        yield RichLog(id="log", markup=True, wrap=True)
+            with Vertical(id="detail-container"):
+                yield Static("Select a student to inspect details.", id="detail", markup=True)
+                
+        with Vertical(id="bottom-container"):
+            with Horizontal(id="progress-panel"):
+                yield Static("SYSTEM IDLE", id="progress-label")
+                yield ProgressBar(id="progress", total=1, show_eta=False)
+            yield RichLog(id="log", markup=True, wrap=True)
+            
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one("#students", DataTable)
-        table.add_columns("Student", "Stage", "Match", "Git", "Fuzz", "Integrity", "Grade")
+        table.add_columns("STUDENT", "STAGE", "MATCH", "GIT", "FUZZ", "INTEGRITY", "GRADE")
         self.load_existing_results()
+        self.log_message("\n[bold #00f0ff]AegisCode Forensics Engine Initialized[/]\n[dim]Ready for command payload...[/]")
 
     def load_existing_results(self) -> None:
         rows = []
@@ -148,22 +215,32 @@ class AegisTUI(App):
             self.student_rows[name] = {**row, "Stage": "graded"}
         self.refresh_table()
         if rows:
-            self.log_message(f"[green]Loaded {len(rows)} students from grades.csv[/]")
+            self.log_message(f"[bold #00e676]✓[/] [white]Loaded {len(rows)} students from database.[/]")
         else:
-            self.log_message("[yellow]No grades.csv found yet. Press 'a' to run an audit.[/]")
+            self.log_message("[bold #ffb703]![/] [white]No grades.csv found. Press 'A' to execute Audit Protocol.[/]")
 
     def refresh_table(self) -> None:
         table = self.query_one("#students", DataTable)
         table.clear()
         for name in sorted(self.student_rows):
             row = self.student_rows[name]
+            
+            git_val = str(row.get("Git Forensic Anomaly", "-"))
+            git_fmt = f"[#00e676]{git_val}[/]" if git_val == "NO" else f"[bold #ff007f]{git_val}[/]"
+            
+            fuzz_val = str(row.get("Fuzz/Gaming Anomaly", "-"))
+            fuzz_fmt = f"[#00e676]{fuzz_val}[/]" if fuzz_val == "PASSED" else f"[bold #ff007f]{fuzz_val}[/]"
+            
+            flag_val = str(row.get("Integrity Flag", "-"))
+            flag_fmt = f"[bold #ff007f]⚠ {flag_val}[/]" if flag_val == "FLAGGED" else f"[bold #00e676]✓ {flag_val}[/]"
+
             table.add_row(
-                Text(name, style="bold white"),
+                Text(f" {name} ", style="bold #ffffff"),
                 _status_text(row.get("Stage", "queued")),
                 _match_text(row.get("Max Plagiarism Match", "0.0%")),
-                Text(str(row.get("Git Forensic Anomaly", "-"))),
-                Text(str(row.get("Fuzz/Gaming Anomaly", "-"))),
-                Text(str(row.get("Integrity Flag", "-"))),
+                Text.from_markup(git_fmt),
+                Text.from_markup(fuzz_fmt),
+                Text.from_markup(flag_fmt),
                 _grade_text(row.get("Adjusted Grade %", "0")),
                 key=name,
             )
@@ -185,10 +262,15 @@ class AegisTUI(App):
             except (TypeError, ValueError):
                 pass
         avg = f"{sum(grades) / len(grades):.1f}%" if grades else "-"
-        status = "Audit running" if self.is_auditing else "Ready"
-        self.query_one("#summary", Static).update(
-            f"Students: {total}    Flagged: {flagged}    Avg grade: {avg}    Status: {status}"
+        status = "[bold #00e676]ACTIVE[/]" if self.is_auditing else "[bold #00f0ff]STANDBY[/]"
+        
+        stats_text = (
+            f"[dim]SYSTEM STATUS:[/] {status}\n"
+            f"[dim]TARGETS SCANNED:[/] [bold white]{total}[/]\n"
+            f"[dim]INTEGRITY VIOLATIONS:[/] [bold #ff007f]{flagged}[/]\n"
+            f"[dim]MEAN ACCURACY:[/] [bold #00f0ff]{avg}[/]"
         )
+        self.query_one("#header-stats", Static).update(stats_text)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.selected_student = str(event.row_key.value)
@@ -198,46 +280,65 @@ class AegisTUI(App):
         row = self.student_rows.get(student)
         if not row:
             return
-        details = [
-            f"[b]{student}[/b]",
-            "",
-            f"Stage: {row.get('Stage', '-')}",
-            f"Integrity: {row.get('Integrity Flag', '-')}",
-            f"Adjusted grade: {row.get('Adjusted Grade %', '-')}%",
-            f"Test score: {row.get('Test Score %', '-')}% ({row.get('Tests Passed', '-')} / {row.get('Total Tests', '-')})",
-            f"Plagiarism: {row.get('Max Plagiarism Match', '-')}",
-            f"Git anomaly: {row.get('Git Forensic Anomaly', '-')}",
-            f"Fuzz anomaly: {row.get('Fuzz/Gaming Anomaly', '-')}",
-            f"Viva verified: {row.get('Viva Verified', '-')}",
-            f"Viva ownership: {row.get('Viva Ownership Score', '-')}",
-            f"Files scanned: {row.get('Files Scanned', '-')}",
-            f"Lines of code: {row.get('Lines of Code', '-')}",
-        ]
+            
+        ai_match = row.get("AI Baseline Match", "-")
+        llm_flag = row.get("LLM Rewrite Flag", "-")
+        git_anomaly = row.get("Git Forensic Anomaly", "-")
+        fuzz = row.get("Fuzz/Gaming Anomaly", "-")
+        integrity = row.get("Integrity Flag", "-")
+        
+        c_flag = "#ff007f" if integrity == "FLAGGED" else "#00e676"
+        c_ai = "#ff007f" if row.get("AI Flagged") == "YES" else "#00e676"
+        c_llm = "#ff007f" if llm_flag == "YES" else "#00e676"
+        c_git = "#00e676" if git_anomaly == "NO" else "#ff007f"
+        c_fuzz = "#00e676" if fuzz == "PASSED" else "#ff007f"
+        
+        panel_content = (
+            f"[bold #ffffff]TARGET:[/] [bold #00f0ff]{student.upper()}[/]\n"
+            f"[bold #ffffff]STAGE:[/] {row.get('Stage', '-').upper()}\n\n"
+            f"[bold #9d4edd]─── CODE METRICS ───────────────────────[/]\n"
+            f"[dim]LOC:[/] [white]{row.get('Lines of Code', '-')}[/]  |  [dim]FILES:[/] [white]{row.get('Files Scanned', '-')}[/]\n"
+            f"[dim]TESTS:[/] [white]{row.get('Test Score %', '-')}%[/] ({row.get('Tests Passed', '-')} / {row.get('Total Tests', '-')})\n\n"
+            f"[bold #9d4edd]─── FORENSIC ANALYSIS ──────────────────[/]\n"
+            f"[dim]PLAGIARISM MATCH:[/] [bold white]{row.get('Max Plagiarism Match', '-')}[/]\n"
+            f"[dim]AI BASELINE MATCH:[/] [bold {c_ai}]{ai_match}[/]\n"
+            f"[dim]LLM REWRITE FLAG:[/] [bold {c_llm}]{llm_flag}[/]\n"
+            f"[dim]GIT FORENSICS:[/] [bold {c_git}]{git_anomaly}[/]\n"
+            f"[dim]FUZZER STATUS:[/] [bold {c_fuzz}]{fuzz}[/]\n"
+            f"[dim]VIVA VOCE SCORE:[/] [bold white]{row.get('Viva Ownership Score', '-')}[/]\n\n"
+            f"[bold #9d4edd]─── FINAL VERDICT ──────────────────────[/]\n"
+            f"[dim]ADJUSTED GRADE:[/] [bold #00f0ff]{row.get('Adjusted Grade %', '-')}%[/]\n"
+            f"[dim]INTEGRITY OVERALL:[/] [bold {c_flag}]{integrity}[/]\n"
+        )
+        
         if row.get("Git Notes"):
-            details.extend(["", "Git notes:", str(row["Git Notes"])])
-        if row.get("Last Event"):
-            details.extend(["", "Last event:", str(row["Last Event"])])
-        self.query_one("#detail", Static).update("\n".join(details))
+            panel_content += f"\n[dim]GIT NOTES:[/] [white]{row['Git Notes']}[/]"
+
+        self.query_one("#detail", Static).update(Panel(
+            panel_content,
+            title=f"[bold #00f0ff]▤ DOSSIER: {student}[/]",
+            border_style="#9d4edd",
+            box=getattr(import_rich_box(), "SQUARE", None)
+        ))
 
     def action_refresh(self) -> None:
         if self.is_auditing:
-            self.log_message("[yellow]Audit is already running.[/]")
+            self.log_message("[bold #ffb703]![/] Audit sequence locked. Cannot refresh.")
             return
         self.load_existing_results()
 
     def action_run_audit(self) -> None:
         if self.is_auditing:
-            self.log_message("[yellow]Audit is already running.[/]")
+            self.log_message("[bold #ffb703]![/] Audit sequence already in progress.")
             return
         self.run_audit_worker()
 
     @work(thread=True)
     def run_audit_worker(self) -> None:
         from aegis.grading import execute_grading_pipeline
-
         self.is_auditing = True
         self.call_from_thread(self.refresh_summary)
-        self.call_from_thread(self.set_progress, 0, 1, f"Starting audit for {self.submissions_dir}")
+        self.call_from_thread(self.set_progress, 0, 1, f"INITIALIZING AUDIT ON {self.submissions_dir.upper()}")
 
         def callback(event: str, payload: dict) -> None:
             self.call_from_thread(self.handle_progress, event, payload)
@@ -251,7 +352,7 @@ class AegisTUI(App):
                 progress_callback=callback,
             )
         except Exception as exc:
-            self.call_from_thread(self.log_message, f"[red]Audit failed: {exc}[/]")
+            self.call_from_thread(self.log_message, f"[bold #ff007f]FATAL ERROR:[/] {exc}")
         finally:
             self.is_auditing = False
             self.call_from_thread(self.refresh_summary)
@@ -264,16 +365,15 @@ class AegisTUI(App):
                 if os.path.isdir(full_path):
                     self.student_rows[name] = {"Student": name, "Stage": "queued"}
             self.refresh_table()
-            self.set_progress(0, max(total, 1), f"Discovered {total} submissions")
-            self.log_message(f"[cyan]Discovered {total} student folders in {self.submissions_dir}[/]")
+            self.set_progress(0, max(total, 1), f"TARGET ACQUISITION: {total} HOSTS")
+            self.log_message(f"[bold #00f0ff]>[/] Target acquisition complete: {total} directories locked.")
             return
 
         if event == "student_scan_started":
             row = self.student_rows.setdefault(payload["student"], {"Student": payload["student"]})
             row["Stage"] = "scanning"
-            row["Last Event"] = "Scanning repository"
             self.refresh_table()
-            self.set_progress(payload["index"] - 1, payload["total"], f"Scanning {payload['student']}")
+            self.set_progress(payload["index"] - 1, payload["total"], f"STATIC ANALYSIS: {payload['student'].upper()}")
             return
 
         if event == "student_scan_completed":
@@ -285,12 +385,10 @@ class AegisTUI(App):
                 "Viva Verified": "YES" if payload.get("viva_verified") else "NO",
                 "Viva Ownership Score": f"{payload.get('viva_score', 0)}%",
                 "Git Forensic Anomaly": "NO" if payload.get("git_repo") else "NO_REPO",
-                "Git Notes": "; ".join(payload.get("git_anomalies", [])),
                 "Stage": "scanned",
-                "Last Event": "Static analysis complete",
             })
             self.refresh_table()
-            self.log_message(f"[cyan]Scanned {payload['student']}[/]")
+            self.log_message(f"[bold #9d4edd]>[/] Static scan complete: [white]{payload['student']}[/]")
             return
 
         if event == "similarity_pair_completed":
@@ -301,17 +399,15 @@ class AegisTUI(App):
             for name in [student_a, student_b]:
                 row = self.student_rows.setdefault(name, {"Student": name})
                 row["Stage"] = "comparing"
-                row["Last Event"] = f"Compared with {student_b if name == student_a else student_a}"
             self.refresh_table()
-            self.set_progress(pair_index, total_pairs, f"Similarity {pair_index}/{total_pairs}: {student_a} vs {student_b}")
+            self.set_progress(pair_index, total_pairs, f"CROSS-MATCHING: {student_a} ↔ {student_b}")
             return
 
         if event == "student_grade_started":
             row = self.student_rows.setdefault(payload["student"], {"Student": payload["student"]})
             row["Stage"] = "grading"
-            row["Last Event"] = "Running tests and generating feedback"
             self.refresh_table()
-            self.set_progress(payload["index"] - 1, payload["total"], f"Grading {payload['student']}")
+            self.set_progress(payload["index"] - 1, payload["total"], f"FUZZING & LLM ANALYSIS: {payload['student'].upper()}")
             return
 
         if event == "student_grade_completed":
@@ -319,20 +415,19 @@ class AegisTUI(App):
             row = self.student_rows.setdefault(payload["student"], {"Student": payload["student"]})
             row.update(result)
             row["Stage"] = "graded"
-            row["Last Event"] = "Grade finalized"
             self.refresh_table()
-            self.set_progress(payload["index"], payload["total"], f"Graded {payload['student']}")
-            self.log_message(f"[green]Graded {payload['student']} -> {result.get('Adjusted Grade %', '-')}%[/]")
+            self.set_progress(payload["index"], payload["total"], f"DOSSIER FINALIZED: {payload['student'].upper()}")
+            self.log_message(f"[bold #00e676]>[/] Dossier finalized for [white]{payload['student']}[/]: Grade {result.get('Adjusted Grade %', '-')}%.")
             return
 
         if event == "pipeline_completed":
             total = payload.get("total_students", 0)
-            self.set_progress(total, max(total, 1), f"Audit complete. Wrote {payload.get('csv_file', 'grades.csv')}")
-            self.log_message(f"[green]Audit complete for {total} students[/]")
+            self.set_progress(total, max(total, 1), "AUDIT SEQUENCE COMPLETE")
+            self.log_message(f"\n[bold #00e676]★[/] [white]Audit sequence completed for {total} hosts.[/]")
             return
 
         if event == "error":
-            self.log_message(f"[red]{payload.get('message', 'Unknown error')}[/]")
+            self.log_message(f"[bold #ff007f]ERROR:[/] {payload.get('message', 'Unknown fault')}")
 
     def set_progress(self, current: int, total: int, label: str) -> None:
         bar = self.query_one("#progress", ProgressBar)
@@ -345,7 +440,6 @@ class AegisTUI(App):
     def action_open_web(self) -> None:
         if not self._web_thread_started:
             from aegis.web_server import start_server
-
             thread = threading.Thread(
                 target=start_server,
                 kwargs={"config": self.config, "submissions_dir": self.submissions_dir, "port": 8000},
@@ -354,8 +448,12 @@ class AegisTUI(App):
             thread.start()
             self._web_thread_started = True
         webbrowser.open("http://localhost:8000")
-        self.log_message("[cyan]Opened web dashboard at http://localhost:8000[/]")
+        self.log_message("[bold #00f0ff]>[/] Dashboard telemetry initialized on localhost:8000")
 
+
+def import_rich_box():
+    import rich.box
+    return rich.box
 
 def launch_tui(submissions_dir: str = "test_submissions", config: dict | None = None, test_command: str | None = None, rubric_path: str = "rubric.md"):
     app = AegisTUI(submissions_dir=submissions_dir, config=config or {}, test_command=test_command, rubric_path=rubric_path)

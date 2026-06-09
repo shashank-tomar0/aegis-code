@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AegisCode Report Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Load Chart.js for Git timelines and Marked.js for rendering feedback Markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #080613;
+            --card-bg: rgba(18, 14, 38, 0.65);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --primary: #9d4edd;
+            --primary-glow: rgba(157, 78, 221, 0.3);
+            --pink: #ff007f;
+            --cyan: #00f0ff;
+            --text-main: #f8f9fa;
+            --text-muted: #8e94a5;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            overflow-x: hidden;
+            background-image: radial-gradient(circle at 10% 20%, rgba(93, 33, 210, 0.12) 0%, transparent 40%),
+                              radial-gradient(circle at 90% 80%, rgba(236, 72, 153, 0.08) 0%, transparent 45%);
+            background-attachment: fixed;
+            min-height: 100vh;
+        }
+
+        header {
+            padding: 24px 40px;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(8, 6, 19, 0.8);
+            backdrop-filter: blur(10px);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo-area h1 {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--cyan) 0%, var(--primary) 50%, var(--pink) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 0.5px;
+        }
+
+        .logo-area p {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 8px;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-muted);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .tab-btn:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .tab-btn.active {
+            color: var(--text-main);
+            background: var(--card-bg);
+            border-color: var(--border-color);
+            box-shadow: 0 0 15px var(--primary-glow);
+        }
+
+        main {
+            padding: 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Card Styles */
+        .glass-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            margin-bottom: 24px;
+        }
+
+        .card-header {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            border-left: 4px solid var(--primary);
+            padding-left: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Table Styles */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            color: var(--text-muted);
+            font-weight: 500;
+            font-size: 13px;
+            text-transform: uppercase;
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+            letter-spacing: 0.5px;
+        }
+
+        td {
+            padding: 18px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 14px;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr.clickable {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        tr.clickable:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Badge Styles */
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-clean {
+            background: rgba(0, 240, 255, 0.12);
+            color: var(--cyan);
+            border: 1px solid rgba(0, 240, 255, 0.25);
+        }
+
+        .badge-flagged {
+            background: rgba(255, 0, 127, 0.12);
+            color: var(--pink);
+            border: 1px solid rgba(255, 0, 127, 0.25);
+        }
+
+        .badge-pending {
+            background: rgba(230, 180, 0, 0.12);
+            color: #ffb703;
+            border: 1px solid rgba(230, 180, 0, 0.25);
+        }
+
+        /* Detail Inspector Grid */
+        .inspector-grid {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 24px;
+        }
+
+        .student-list-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .side-student-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            padding: 16px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .side-student-card:hover {
+            border-color: var(--primary);
+            background: rgba(157, 78, 221, 0.05);
+        }
+
+        .side-student-card.active {
+            border-color: var(--cyan);
+            background: rgba(0, 240, 255, 0.05);
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.15);
+        }
+
+        .side-student-card h4 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .side-student-card p {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .detail-display-panel {
+            min-height: 400px;
+        }
+
+        .split-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        /* Code Block Container */
+        .code-container {
+            position: relative;
+            background: #020108;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .code-header {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 13px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .code-body {
+            padding: 16px;
+            overflow-x: auto;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #d1d5db;
+            white-space: pre;
+        }
+
+        /* Feedback Render Styles */
+        .feedback-view {
+            line-height: 1.6;
+            color: #e2e8f0;
+        }
+
+        .feedback-view h1, .feedback-view h2, .feedback-view h3 {
+            margin: 20px 0 10px;
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        .feedback-view h2 {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 6px;
+            font-size: 20px;
+        }
+
+        .feedback-view ul, .feedback-view ol {
+            margin-left: 24px;
+            margin-bottom: 16px;
+        }
+
+        .feedback-view li {
+            margin-bottom: 6px;
+        }
+
+        .feedback-view table {
+            margin: 16px 0;
+            border: 1px solid var(--border-color);
+        }
+
+        .feedback-view th, .feedback-view td {
+            padding: 10px;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Diff Highlight Compare Panel */
+        .comparison-wrapper {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .compare-selector {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            align-items: center;
+        }
+
+        select {
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-family: inherit;
+            outline: none;
+            cursor: pointer;
+        }
+
+        select:focus {
+            border-color: var(--primary);
+        }
+
+        .compare-btn {
+            background: var(--primary);
+            border: none;
+            color: var(--text-main);
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .compare-btn:hover {
+            box-shadow: 0 0 15px var(--primary);
+            transform: translateY(-1px);
+        }
+
+        .chart-box {
+            position: relative;
+            height: 250px;
+            width: 100%;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .stat-card h5 {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-card p {
+            font-size: 24px;
+            font-weight: 700;
+            margin-top: 8px;
+            color: var(--cyan);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo-area">
+            <h1>AEGISCODE</h1>
+            <p>Developer Forensics & Code Integrity Agent</p>
+        </div>
+        <div class="nav-tabs">
+            <button class="tab-btn active" onclick="switchTab('overview')">Overview Audit</button>
+            <button class="tab-btn" onclick="switchTab('inspector')">Forensic Inspector</button>
+            <button class="tab-btn" onclick="switchTab('compare')">AST Logic Compare</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Tab 1: Overview Audit -->
+        <div id="overview" class="tab-content active">
+            <div class="glass-card">
+                <div class="card-header">
+                    <span>Active Submissions Integrity Log</span>
+                    <button class="compare-btn" style="padding: 6px 14px; font-size: 12px;" onclick="loadSummary()">Refresh Audit</button>
+                </div>
+                <table id="summary-table">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Tests Score</th>
+                            <th>Plagiarism Match</th>
+                            <th>Git Churn Anomaly</th>
+                            <th>Viva Vetted</th>
+                            <th>Ownership Score</th>
+                            <th>Status Flag</th>
+                            <th>Final Adjusted Grade</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Dynamically filled -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Tab 2: Forensic Inspector -->
+        <div id="inspector" class="tab-content">
+            <div class="inspector-grid">
+                <div class="student-list-panel">
+                    <div class="card-header" style="font-size: 14px; border: none; padding: 0;">Submissions</div>
+                    <div id="side-student-list">
+                        <!-- Dynamically filled -->
+                    </div>
+                </div>
+                <div class="detail-display-panel">
+                    <div class="stat-grid" id="student-stats">
+                        <div class="stat-card">
+                            <h5>Lines of Code</h5>
+                            <p id="stat-loc">-</p>
+                        </div>
+                        <div class="stat-card">
+                            <h5>Commit Count</h5>
+                            <p id="stat-commits">-</p>
+                        </div>
+                        <div class="stat-card">
+                            <h5>Code Ownership</h5>
+                            <p id="stat-ownership">-</p>
+                        </div>
+                        <div class="stat-card">
+                            <h5>Forensic Flag</h5>
+                            <p id="stat-flag" style="color: var(--pink);">-</p>
+                        </div>
+                    </div>
+
+                    <div class="split-layout">
+                        <!-- Git Churn Chart Card -->
+                        <div class="glass-card" style="margin-bottom: 0;">
+                            <div class="card-header" style="font-size: 15px; margin-bottom: 12px;">Temporal Git Churn Timeline</div>
+                            <div class="chart-box">
+                                <canvas id="churnChart"></canvas>
+                            </div>
+                        </div>
+                        <!-- Complexity Card -->
+                        <div class="glass-card" style="margin-bottom: 0;">
+                            <div class="card-header" style="font-size: 15px; margin-bottom: 12px;">Function Cyclomatic Complexity (McCabe)</div>
+                            <table id="complexity-table" style="font-size: 12px;">
+                                <thead>
+                                    <tr>
+                                        <th style="padding: 8px;">Function Name</th>
+                                        <th style="padding: 8px;">Complexity</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dynamic -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Code Preview -->
+                    <div class="glass-card" style="margin-top: 24px; margin-bottom: 24px;">
+                        <div class="card-header" style="font-size: 15px;">Source Code Inspector</div>
+                        <div class="code-container">
+                            <div class="code-header">
+                                <span id="code-filepath">solution.py</span>
+                                <span>Python</span>
+                            </div>
+                            <div class="code-body" id="code-view"># No student selected</div>
+                        </div>
+                    </div>
+
+                    <!-- AI TA Feedback Report -->
+                    <div class="glass-card">
+                        <div class="card-header" style="font-size: 15px;">AI TA Rubric-Based Feedback</div>
+                        <div class="feedback-view" id="feedback-view">
+                            <!-- Markdown rendered here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab 3: AST Logic Compare -->
+        <div id="compare" class="tab-content">
+            <div class="glass-card">
+                <div class="card-header" style="border: none; padding-left: 0;">AST Structural Plagiarism Inspector</div>
+                <div class="compare-selector">
+                    <label>Compare Student A:</label>
+                    <select id="student-a-select"><option>Loading...</option></select>
+                    <label>with Student B:</label>
+                    <select id="student-b-select"><option>Loading...</option></select>
+                    <button class="compare-btn" onclick="runCompare()">Compare Logic</button>
+                </div>
+
+                <div class="stat-grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 24px;">
+                    <div class="stat-card">
+                        <h5>AST Jaccard Similarity (Overall Logic Map)</h5>
+                        <p id="compare-jaccard" style="color: var(--pink);">-</p>
+                    </div>
+                    <div class="stat-card">
+                        <h5>AST Containment Similarity (Embedded Logic Copy)</h5>
+                        <p id="compare-containment" style="color: var(--pink);">-</p>
+                    </div>
+                </div>
+
+                <div class="comparison-wrapper">
+                    <!-- Left Student -->
+                    <div class="code-container">
+                        <div class="code-header">
+                            <span id="compare-s1-name">Student A</span>
+                            <span>Source Code</span>
+                        </div>
+                        <div class="code-body" id="compare-s1-code" style="max-height: 500px;"></div>
+                    </div>
+                    <!-- Right Student -->
+                    <div class="code-container">
+                        <div class="code-header">
+                            <span id="compare-s2-name">Student B</span>
+                            <span>Source Code</span>
+                        </div>
+                        <div class="code-body" id="compare-s2-code" style="max-height: 500px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let summaryData = [];
+        let activeStudent = null;
+        let churnChart = null;
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
+            
+            if (tabId === 'inspector' && !activeStudent && summaryData.length > 0) {
+                selectStudent(summaryData[0].Student);
+            }
+        }
+
+        async function loadSummary() {
+            try {
+                const res = await fetch('/api/summary');
+                const data = await res.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                
+                summaryData = data;
+                
+                // Populate Table
+                const tbody = document.querySelector('#summary-table tbody');
+                tbody.innerHTML = '';
+                
+                // Populate comparison dropdowns
+                const selectA = document.getElementById('student-a-select');
+                const selectB = document.getElementById('student-b-select');
+                selectA.innerHTML = '';
+                selectB.innerHTML = '';
+
+                data.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'clickable';
+                    tr.onclick = () => {
+                        switchTab('inspector');
+                        // Find the nav tab button for Inspector and set active
+                        document.querySelectorAll('.tab-btn').forEach(b => {
+                            if (b.textContent.includes('Inspector')) b.classList.add('active');
+                            else b.classList.remove('active');
+                        });
+                        selectStudent(row.Student);
+                    };
+
+                    const gitAnomaly = row["Git Forensic Anomaly"];
+                    let gitBadge = `<span class="badge badge-clean">Clean</span>`;
+                    if (gitAnomaly === "CHURN" || gitAnomaly === "SPEED") {
+                        gitBadge = `<span class="badge badge-flagged">${gitAnomaly}</span>`;
+                    } else if (gitAnomaly === "NO_REPO") {
+                        gitBadge = `<span class="badge badge-pending">NO REPO</span>`;
+                    }
+
+                    const flag = row["Integrity Flag"];
+                    const flagBadge = flag === "FLAGGED" 
+                        ? `<span class="badge badge-flagged">Flagged</span>` 
+                        : `<span class="badge badge-clean">Clean</span>`;
+
+                    tr.innerHTML = `
+                        <td><strong>${row.Student}</strong></td>
+                        <td>${row["Test Score %"]}% (${row["Tests Passed"]}/${row["Total Tests"]})</td>
+                        <td>${row["Max Plagiarism Match"]}</td>
+                        <td>${gitBadge}</td>
+                        <td>${row["Viva Verified"] === "YES" ? "✅ Yes" : "❌ No"}</td>
+                        <td>${row["Viva Ownership Score"]}</td>
+                        <td>${flagBadge}</td>
+                        <td style="color: var(--cyan); font-weight: 600;">${row["Adjusted Grade %"]}%</td>
+                    `;
+                    tbody.appendChild(tr);
+
+                    // Add dropdown options
+                    const optA = document.createElement('option');
+                    optA.value = row.Student;
+                    optA.textContent = row.Student;
+                    selectA.appendChild(optA);
+
+                    const optB = document.createElement('option');
+                    optB.value = row.Student;
+                    optB.textContent = row.Student;
+                    selectB.appendChild(optB);
+                });
+
+                // Select different defaults for comparison
+                if (selectB.options.length > 1) {
+                    selectB.selectedIndex = 1;
+                }
+
+                // Populate sidebar lists
+                populateSideStudentPanel();
+            } catch (err) {
+                console.error("Failed to load summary", err);
+            }
+        }
+
+        function populateSideStudentPanel() {
+            const listPanel = document.getElementById('side-student-list');
+            listPanel.innerHTML = '';
+            summaryData.forEach(row => {
+                const div = document.createElement('div');
+                div.className = `side-student-card ${activeStudent === row.Student ? 'active' : ''}`;
+                div.onclick = () => selectStudent(row.Student);
+                div.innerHTML = `
+                    <h4>${row.Student}</h4>
+                    <p>Grade: ${row["Adjusted Grade %"]}% | Match: ${row["Max Plagiarism Match"].split(' ')[0]}</p>
+                `;
+                listPanel.appendChild(div);
+            });
+        }
+
+        async function selectStudent(name) {
+            activeStudent = name;
+            populateSideStudentPanel();
+            
+            try {
+                const res = await fetch(`/api/student/${name}`);
+                const data = await res.json();
+                
+                // Update stats
+                document.getElementById('stat-loc').textContent = data.lines_count;
+                document.getElementById('stat-commits').textContent = data.git.commit_count;
+                
+                const summaryRow = summaryData.find(r => r.Student === name);
+                document.getElementById('stat-ownership').textContent = summaryRow["Viva Ownership Score"];
+                document.getElementById('stat-flag').textContent = summaryRow["Integrity Flag"];
+                if (summaryRow["Integrity Flag"] === "FLAGGED") {
+                    document.getElementById('stat-flag').style.color = 'var(--pink)';
+                } else {
+                    document.getElementById('stat-flag').style.color = 'var(--cyan)';
+                }
+
+                // Update Code Preview
+                const codeBody = document.getElementById('code-view');
+                codeBody.innerHTML = '';
+                
+                // Load first file
+                const filePaths = Object.keys(data.files);
+                if (filePaths.length > 0) {
+                    document.getElementById('code-filepath').textContent = filePaths[0];
+                    // Clean code content escape
+                    const escapedCode = data.files[filePaths[0]]
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;");
+                    codeBody.innerHTML = escapedCode;
+                } else {
+                    document.getElementById('code-filepath').textContent = 'No files';
+                    codeBody.innerHTML = '# No source code found';
+                }
+
+                // Update Complexity Table
+                const compBody = document.querySelector('#complexity-table tbody');
+                compBody.innerHTML = '';
+                data.functions.forEach(fn => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="padding: 6px; font-weight: 500;">${fn.name}()</td>
+                        <td style="padding: 6px; color: ${fn.complexity > 5 ? 'var(--pink)' : 'var(--text-main)'};">${fn.complexity}</td>
+                    `;
+                    compBody.appendChild(tr);
+                });
+
+                // Render Feedback Markdown
+                const feedbackDiv = document.getElementById('feedback-view');
+                if (data.feedback) {
+                    feedbackDiv.innerHTML = marked.parse(data.feedback);
+                } else {
+                    feedbackDiv.innerHTML = "<p>No AI TA feedback generated. Set API Key and run 'aegis audit' to generate feedback.</p>";
+                }
+
+                // Render Chart
+                renderChurnChart(data.git.commits);
+            } catch (err) {
+                console.error("Failed to load student details", err);
+            }
+        }
+
+        function renderChurnChart(commits) {
+            const ctx = document.getElementById('churnChart').getContext('2d');
+            if (churnChart) {
+                churnChart.destroy();
+            }
+
+            if (!commits || commits.length === 0) {
+                churnChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: { labels: ['No Git Repo'], datasets: [] }
+                });
+                return;
+            }
+
+            // Reverse commits to show chronologically
+            const sortedCommits = [...commits].reverse();
+            
+            // Format labels: short hashes or commit numbers
+            const labels = sortedCommits.map((c, idx) => `C${idx+1} (${c.hash})`);
+            const additions = sortedCommits.map(c => c.additions);
+            const deletions = sortedCommits.map(c => c.deletions);
+
+            churnChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Lines Added',
+                            data: additions,
+                            backgroundColor: 'rgba(0, 240, 255, 0.45)',
+                            borderColor: 'var(--cyan)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Lines Deleted',
+                            data: deletions,
+                            backgroundColor: 'rgba(255, 0, 127, 0.45)',
+                            borderColor: 'var(--pink)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#8e94a5' } },
+                        y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#8e94a5' } }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#f8f9fa' } }
+                    }
+                }
+            });
+        }
+
+        async function runCompare() {
+            const s1 = document.getElementById('student-a-select').value;
+            const s2 = document.getElementById('student-b-select').value;
+            
+            if (s1 === s2) {
+                alert("Please select different students to compare!");
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/compare/${s1}/${s2}`);
+                const data = await res.json();
+                
+                document.getElementById('compare-s1-name').textContent = data.student1;
+                document.getElementById('compare-s2-name').textContent = data.student2;
+                
+                document.getElementById('compare-jaccard').textContent = data.jaccard;
+                document.getElementById('compare-containment').textContent = data.containment;
+                
+                const cleanCode1 = data.code1.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const cleanCode2 = data.code2.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                
+                document.getElementById('compare-s1-code').innerHTML = cleanCode1;
+                document.getElementById('compare-s2-code').innerHTML = cleanCode2;
+            } catch (err) {
+                console.error("Failed to run comparison", err);
+            }
+        }
+
+        // Initialize Page
+        window.onload = () => {
+            loadSummary();
+        };
+    </script>
+</body>
+</html>

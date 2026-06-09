@@ -164,6 +164,15 @@ def audit_command(args):
             lines.append(border)
             print("\n" + "\n".join(lines) + "\n")
 
+def web_command(args):
+    """Starts the local web report server."""
+    config = load_config()
+    submissions_dir = args.submissions_dir or "test_submissions"
+    port = args.port or 8000
+    
+    from aegis.web_server import start_server
+    start_server(config, submissions_dir, port)
+
 def main():
     parser = argparse.ArgumentParser(
         description="AegisCode: AI-Age Code Integrity & Vetting Agent"
@@ -185,6 +194,11 @@ def main():
     audit_parser.add_argument("--tests", type=str, help="Command to run tests (e.g. 'pytest')")
     audit_parser.add_argument("--rubric", type=str, help="Path to rubric file")
     
+    # Web subcommand
+    web_parser = subparsers.add_parser("web", help="Launch local reports dashboard")
+    web_parser.add_argument("--submissions_dir", type=str, default="test_submissions", help="Directory containing student folders")
+    web_parser.add_argument("--port", type=int, default=8000, help="Local port to run the server on")
+    
     args = parser.parse_args()
     
     if args.command == "init":
@@ -193,6 +207,8 @@ def main():
         vet_command(args)
     elif args.command == "audit":
         audit_command(args)
+    elif args.command == "web":
+        web_command(args)
     else:
         parser.print_help()
 

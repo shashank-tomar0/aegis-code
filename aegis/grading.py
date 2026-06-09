@@ -12,6 +12,7 @@ from aegis.ui import Spinner, print_success, print_warning, print_error, print_i
 from aegis.fuzzer import inspect_hardcoding, dynamic_fuzz_test
 from aegis.baseline import check_against_baselines
 from aegis.rewrite_detector import detect_llm_rewrite
+from aegis.pdf_report import generate_student_pdf
 
 
 def _emit_progress(progress_callback, event, **payload):
@@ -380,6 +381,14 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
             "Integrity Flag": "FLAGGED" if integrity_flag else "CLEAN",
             "Adjusted Grade %": f"{final_grade:.1f}"
         })
+        
+        # Generate PDF Report
+        try:
+            pdf_path = generate_student_pdf(student, results[-1], data["dir"])
+        except Exception as e:
+            pdf_path = None
+            print_warning(f"Failed to generate PDF for {student}: {e}")
+
         _emit_progress(
             progress_callback,
             "student_grade_completed",
@@ -389,6 +398,7 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
             result=results[-1],
             test_output=test_report.get("output", ""),
             feedback_path=feedback_file,
+            pdf_path=pdf_path,
         )
 
     # Output grades.csv

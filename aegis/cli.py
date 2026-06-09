@@ -177,6 +177,24 @@ def web_command(args):
     from aegis.web_server import start_server
     start_server(config, submissions_dir, port)
 
+def tui_command(args):
+    """Launches the rich interactive Terminal UI dashboard."""
+    config = load_config()
+    submissions_dir = args.submissions_dir or "test_submissions"
+    
+    try:
+        from aegis.tui import launch_tui
+        launch_tui(
+            submissions_dir=submissions_dir,
+            config=config,
+            test_command=args.tests or config.get("test_command"),
+            rubric_path=args.rubric or "rubric.md",
+        )
+    except ImportError as e:
+        print_error(f"TUI dependencies missing. Run: pip install textual rich")
+        print_error(f"Details: {e}")
+        sys.exit(1)
+
 def clone_command(args):
     """Bulk clones student repositories from a list of URLs or a single URL."""
     import subprocess
@@ -332,6 +350,12 @@ def main():
     web_parser.add_argument("--submissions_dir", type=str, default="test_submissions", help="Directory containing student folders")
     web_parser.add_argument("--port", type=int, default=8000, help="Local port to run the server on")
     
+    # TUI subcommand
+    tui_parser = subparsers.add_parser("tui", help="Launch the rich interactive terminal dashboard")
+    tui_parser.add_argument("--submissions_dir", type=str, default="test_submissions", help="Directory containing student folders")
+    tui_parser.add_argument("--tests", type=str, help="Command to run tests (e.g. 'pytest')")
+    tui_parser.add_argument("--rubric", type=str, help="Path to rubric file")
+
     # Clone subcommand
     clone_parser = subparsers.add_parser("clone", help="Bulk clone student repositories")
     clone_parser.add_argument("repo_source", type=str, help="Path to file containing GitHub URLs, or a single repository URL")
@@ -348,6 +372,8 @@ def main():
         audit_command(args)
     elif args.command == "web":
         web_command(args)
+    elif args.command == "tui":
+        tui_command(args)
     elif args.command == "clone":
         clone_command(args)
     else:

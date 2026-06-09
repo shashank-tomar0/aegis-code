@@ -10,6 +10,7 @@ from colorama import Fore, Style
 from aegis.ui import Spinner, print_success, print_warning, print_error, print_info
 from aegis.fuzzer import inspect_hardcoding, dynamic_fuzz_test
 from aegis.baseline import check_against_baselines
+from aegis.rewrite_detector import detect_llm_rewrite
 
 
 def _emit_progress(progress_callback, event, **payload):
@@ -228,6 +229,20 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
             # Run AI Baseline Cross-Match
             baseline_dir = config.get("baseline_dir", ".aegis_baselines")
             baseline_result = check_against_baselines(fp, baseline_dir)
+            
+            # Run LLM Rewrite Detector
+            llm_rewrite_flag = False
+            rewrite_metrics = {}
+            for file_path in code_report["files_scanned"]:
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        source = f.read()
+                    r_metrics = detect_llm_rewrite(source)
+                    if r_metrics["rewrite_flagged"]:
+                        llm_rewrite_flag = True
+                        rewrite_metrics = r_metrics
+                except Exception:
+                    pass
 
             student_data[student] = {
                 "dir": student_dir,
@@ -244,6 +259,8 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
                 "ai_similarity": baseline_result["max_ai_similarity"],
                 "ai_flagged": baseline_result["ai_flagged"],
                 "ai_matched_prompt": baseline_result["matched_baseline"],
+                "llm_rewrite_flagged": llm_rewrite_flag,
+                "rewrite_metrics": rewrite_metrics,
             }
             _emit_progress(
                 progress_callback,
@@ -330,8 +347,9 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
         viva_flag = (not data["viva_verified"]) or (data["viva_score"] < 50)
         fuzz_flag = data["fuzz_anomaly"] != "PASSED"
         ai_flag = data["ai_flagged"]
+        rewrite_flag = data["llm_rewrite_flagged"]
 
-        integrity_flag = plagiarism_flag or git_flag or viva_flag or fuzz_flag or ai_flag
+        integrity_flag = plagiarism_flag or git_flag or viva_flag or fuzz_flag or ai_flag or rewrite_flag
         
         git_anomaly_str = "NO"
         if not data["git"]["is_git_repo"]:
@@ -353,6 +371,7 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
             "Fuzz/Gaming Anomaly": data["fuzz_anomaly"],
             "AI Baseline Match": f"{data['ai_similarity']*100:.1f}%",
             "AI Flagged": "YES" if data["ai_flagged"] else "NO",
+            "LLM Rewrite Flag": "YES" if data["llm_rewrite_flagged"] else "NO",
             "Viva Verified": "YES" if data["viva_verified"] else "NO",
             "Viva Ownership Score": f"{data['viva_score']}%",
             "Integrity Flag": "FLAGGED" if integrity_flag else "CLEAN",

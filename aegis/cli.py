@@ -203,29 +203,47 @@ def clone_command(args):
     
     # 1. Gather URLs
     urls = []
-    source = args.repo_source
-    if os.path.exists(source):
-        try:
-            with open(source, "r", encoding="utf-8") as f:
-                for line in f:
-                    u = line.strip()
-                    if u and not u.startswith("#"):
-                        urls.append(u)
-            print_info(f"Loaded {len(urls)} URLs from file: {source}")
-        except Exception as e:
-            print_error(f"Failed to read file {source}: {e}")
+    
+    if args.classroom:
+        from aegis.classroom import extract_assignment_id, fetch_classroom_repos
+        assignment_id = extract_assignment_id(args.classroom)
+        config = load_config()
+        # Fallback to env var if not in aegis.json
+        gh_token = config.get("github_token") or os.environ.get("GITHUB_TOKEN", "")
+        
+        fetched_urls = fetch_classroom_repos(assignment_id, gh_token)
+        if not fetched_urls:
+            print_error("Failed to fetch classroom repositories.")
             sys.exit(1)
+        urls.extend(fetched_urls)
     else:
-        if source.startswith(("http://", "https://", "git@", "ssh://")):
-            urls.append(source)
-            print_info(f"Using single repository URL: {source}")
-        else:
-            if "," in source:
-                urls = [u.strip() for u in source.split(",") if u.strip()]
-                print_info(f"Using {len(urls)} comma-separated repository URLs")
-            else:
-                print_error(f"Source '{source}' is neither an existing file nor a valid Git URL.")
+        source = args.repo_source
+        if not source:
+            print_error("Must provide either repo_source or --classroom.")
+            sys.exit(1)
+            
+        if os.path.exists(source):
+            try:
+                with open(source, "r", encoding="utf-8") as f:
+                    for line in f:
+                        u = line.strip()
+                        if u and not u.startswith("#"):
+                            urls.append(u)
+                print_info(f"Loaded {len(urls)} URLs from file: {source}")
+            except Exception as e:
+                print_error(f"Failed to read file {source}: {e}")
                 sys.exit(1)
+        else:
+            if source.startswith(("http://", "https://", "git@", "ssh://")):
+                urls.append(source)
+                print_info(f"Using single repository URL: {source}")
+            else:
+                if "," in source:
+                    urls = [u.strip() for u in source.split(",") if u.strip()]
+                    print_info(f"Using {len(urls)} comma-separated repository URLs")
+                else:
+                    print_error(f"Source '{source}' is neither an existing file nor a valid Git URL.")
+                    sys.exit(1)
                 
     if not urls:
         print_warning("No URLs found to clone.")
@@ -401,7 +419,8 @@ def main():
 
     # Clone subcommand
     clone_parser = subparsers.add_parser("clone", help="Bulk clone student repositories")
-    clone_parser.add_argument("repo_source", type=str, help="Path to file containing GitHub URLs, or a single repository URL")
+    clone_parser.add_argument("repo_source", type=str, nargs="?", help="Path to file containing GitHub URLs, or a single repository URL")
+    clone_parser.add_argument("--classroom", type=str, help="GitHub Classroom assignment URL or ID to auto-fetch repos")
     clone_parser.add_argument("--dest", type=str, default="test_submissions", help="Directory to clone repositories into")
     clone_parser.add_argument("--audit", action="store_true", help="Automatically run audit on cloned repositories")
 

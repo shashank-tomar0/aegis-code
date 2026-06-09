@@ -6,13 +6,10 @@ from typing import ClassVar
 
 from rich.text import Text
 from rich.panel import Panel
-from rich.align import Align
-from rich.console import Group
-from rich.progress import BarColumn, Progress, TextColumn
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, Container
+from textual.containers import Horizontal, Vertical
 from textual.widgets import DataTable, Footer, ProgressBar, RichLog, Static
 
 # --- CSS Design System ---
@@ -21,22 +18,22 @@ Screen {
     background: #0d0e12;
 }
 
-/* App Header styling (macOS dots + Split Logotype) */
+/* App Header styling */
 #header-panel {
-    height: 6;
+    height: 7;
     background: #0d0e12;
     border-bottom: solid #1f2229;
     padding: 1 2;
 }
 
 #traffic-lights {
-    width: 10;
-    content-align: left middle;
+    width: 6;
+    content-align: left top;
 }
 
 #header-title {
     width: 1fr;
-    content-align: left middle;
+    content-align: left top;
     text-style: bold;
 }
 
@@ -44,7 +41,7 @@ Screen {
     width: auto;
     color: #a1a1aa;
     text-align: right;
-    content-align: right middle;
+    content-align: right top;
 }
 
 /* Main Layout */
@@ -72,8 +69,8 @@ DataTable {
 }
 
 DataTable > .datatable--header {
-    background: #16181d;
-    color: #a1a1aa;
+    background: #0d0e12;
+    color: #52525b;
     text-style: bold;
 }
 
@@ -93,7 +90,7 @@ DataTable > .datatable--hover {
     height: 1fr;
     background: #0d0e12;
     color: #d4d4d8;
-    padding: 1 1;
+    padding: 0 1;
 }
 
 /* Progress & Logs */
@@ -135,15 +132,15 @@ Footer > .footer--key {
 """
 
 # --- UI Helper Functions ---
-def _make_badge(text: str, color_hex: str, text_hex: str = "#ffffff") -> Text:
-    """Creates a semantic 'pill' badge."""
-    return Text(f" {text} ", style=f"bold {text_hex} on {color_hex}")
+def _make_badge(text: str, color_hex: str) -> Text:
+    """Minimalist dot indicator instead of block background."""
+    return Text(f"● {text}", style=f"bold {color_hex}")
 
-def _mini_bar(percentage: float, width: int = 8, color: str = "#9d6fff") -> Text:
-    """Generates a text-based horizontal mini-bar for percentages."""
+def _mini_bar(percentage: float, width: int = 10, color: str = "#9d6fff") -> Text:
+    """Minimalist thin horizontal bar."""
     filled = int((percentage / 100.0) * width)
     empty = width - filled
-    bar_text = ("█" * filled) + ("░" * empty)
+    bar_text = ("━" * filled) + ("╌" * empty)
     return Text(f"{bar_text} {percentage:.1f}%", style=color)
 
 def _match_column(value: str) -> Text:
@@ -153,7 +150,7 @@ def _match_column(value: str) -> Text:
     except (TypeError, ValueError, IndexError):
         return Text(text, style="dim white")
     color = "#ff007f" if pct >= 70 else "#ffb703" if pct >= 40 else "#00d4c8"
-    return _mini_bar(pct, width=6, color=color)
+    return _mini_bar(pct, width=8, color=color)
 
 def _grade_badge(value: str) -> Text:
     try:
@@ -161,8 +158,7 @@ def _grade_badge(value: str) -> Text:
     except (TypeError, ValueError):
         return _make_badge(str(value or "-"), "#52525b")
     color = "#00e676" if grade >= 80 else "#ffb703" if grade >= 50 else "#ff007f"
-    # Using black text for better contrast on bright pill backgrounds
-    return _make_badge(f"{grade:.1f}%", color, "#000000" if grade >= 50 else "#ffffff")
+    return _make_badge(f"{grade:.1f}%", color)
 
 def _status_badge(stage: str) -> Text:
     palette = {
@@ -174,16 +170,16 @@ def _status_badge(stage: str) -> Text:
         "graded": "#00e676",
         "error": "#ff007f",
     }
-    return _make_badge(stage.upper(), palette.get(stage, "#52525b"), "#000000" if stage in ["scanning", "scanned", "graded"] else "#ffffff")
+    return _make_badge(stage.upper(), palette.get(stage, "#52525b"))
 
 def _bool_badge(val: str, ok_val: str, warn_val: str = None) -> Text:
     val = str(val).upper()
     if val == ok_val:
-        return _make_badge(val, "#00e676", "#000000")
+        return _make_badge(val, "#00e676")
     elif warn_val and val == warn_val:
-        return _make_badge(val, "#ffb703", "#000000")
+        return _make_badge(val, "#ffb703")
     else:
-        return _make_badge(val, "#ff007f", "#ffffff")
+        return _make_badge(val, "#ff007f")
 
 # --- Main Application ---
 class AegisTUI(App):
@@ -210,11 +206,13 @@ class AegisTUI(App):
     def compose(self) -> ComposeResult:
         with Horizontal(id="header-panel"):
             yield Static("[#ff5f56]●[/] [#ffbd2e]●[/] [#27c93f]●[/]", id="traffic-lights")
+            
             ascii_logo = (
-                r"[bold #00d4c8]   __ _  ___  ___ _(_)__[/]  [bold #9d6fff]/ ___/___  ___/ /__[/]" + "\n"
-                r"[bold #00d4c8]  / _` |/ -_)/ _ `/ /(_-<[/][bold #9d6fff]/ /__ / _ \/ _  // -_)[/]" + "\n"
-                r"[bold #00d4c8]  \_,_| \__/ \_, /_//___/[/][bold #9d6fff]\___/ \___/\_,_/ \__/[/]" + "\n"
-                r"[bold #00d4c8]            /___/        [/]"
+                r"[bold #00d4c8]      ___   __________   _______[/][bold #9d6fff]  _________  ____  _____[/]" + "\n"
+                r"[bold #00d4c8]     /   | / ____/ __ \ /  _/ ___/[/][bold #9d6fff]/ ____/ __ \/ __ \/ ___/[/]" + "\n"
+                r"[bold #00d4c8]    / /| |/ __/ / / / / / / \__ \ [/][bold #9d6fff]/ /   / / / / / / / __/  [/]" + "\n"
+                r"[bold #00d4c8]   / ___ / /___/ /_/ /_/ / ___/ /[/][bold #9d6fff]/ /___/ /_/ / /_/ / /___ [/]" + "\n"
+                r"[bold #00d4c8]  /_/  |_\____/\____//___//____/ [/][bold #9d6fff]\____/\____/_____/_____/[/]"
             )
             yield Static(ascii_logo, id="header-title", markup=True)
             yield Static("STATS WAITING...", id="header-stats")
@@ -260,9 +258,8 @@ class AegisTUI(App):
         for name in sorted(self.student_rows):
             row = self.student_rows[name]
             
-            # Avatar circle fallback (using first 2 letters)
             initials = name[:2].upper() if name else "??"
-            avatar = f"[#0d0e12 on #9d6fff] {initials} [/]"
+            avatar = f"[#1f2229 on #00d4c8] {initials} [/]"
             
             git_val = str(row.get("Git Forensic Anomaly", "-"))
             fuzz_val = str(row.get("Fuzz/Gaming Anomaly", "-"))
@@ -321,7 +318,6 @@ class AegisTUI(App):
         fuzz = row.get("Fuzz/Gaming Anomaly", "-")
         integrity = row.get("Integrity Flag", "-")
         
-        # Color coding
         c_flag = "#ff007f" if integrity == "FLAGGED" else "#00e676"
         c_llm = "#ff007f" if llm_flag == "YES" else "#00e676"
         c_git = "#00e676" if git_anomaly == "NO" else "#ff007f"
@@ -337,16 +333,15 @@ class AegisTUI(App):
         except:
             ai_float = 0.0
 
-        # Construct the Dossier string using Rich markup
         dossier = (
             f"[bold white]TARGET:[/] [bold #00d4c8]{student}[/]\n"
             f"[bold white]STAGE:[/] {row.get('Stage', '-').upper()}\n\n"
             
-            f"[dim #9d6fff]━━ CODE METRICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]\n"
+            f"[dim #52525b]━━ CODE METRICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]\n"
             f"LOC: [white]{row.get('Lines of Code', '-')}[/]  |  FILES: [white]{row.get('Files Scanned', '-')}[/]\n"
             f"TESTS: [bold white]{row.get('Test Score %', '-')}%[/] ({row.get('Tests Passed', '-')} / {row.get('Total Tests', '-')})\n\n"
             
-            f"[dim #9d6fff]━━ FORENSIC ANALYSIS ━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]\n"
+            f"[dim #52525b]━━ FORENSIC ANALYSIS ━━━━━━━━━━━━━━━━━━━━━━━━━━━[/]\n"
             f"PLAGIARISM MATCH: [bold {'#ff007f' if plag_float > 50 else '#00d4c8'}]{row.get('Max Plagiarism Match', '-')}[/]\n"
             f"AI BASELINE MATCH: [bold {'#ff007f' if ai_float > 50 else '#00d4c8'}]{ai_match}[/]\n"
             f"LLM REWRITE FLAG: [bold {c_llm}]{llm_flag}[/]\n"
@@ -358,27 +353,24 @@ class AegisTUI(App):
         if row.get("Git Notes"):
             dossier += f"[dim]GIT NOTES:[/] [white]{row['Git Notes']}[/]\n\n"
 
-        # Final Verdict Box
-        bg_tint = "on #3a001e" if integrity == "FLAGGED" else ("on #002b16" if integrity == "CLEAN" else "")
+        border_c = "#ff007f" if integrity == "FLAGGED" else "#00e676"
         verdict_text = (
-            f"[{bg_tint}]                                                  [/]\n"
-            f"[{bg_tint}]  [bold white]FINAL VERDICT[/]                                  [/]\n"
-            f"[{bg_tint}]  ADJUSTED GRADE: [bold #00d4c8]{row.get('Adjusted Grade %', '-')}%[/]                            [/]\n"
-            f"[{bg_tint}]  INTEGRITY OVERALL: [bold {c_flag}]{integrity}[/]                      [/]\n"
-            f"[{bg_tint}]                                                  [/]"
+            f"  [bold white]FINAL VERDICT[/]\n"
+            f"  ADJUSTED GRADE: [bold #00d4c8]{row.get('Adjusted Grade %', '-')}%[/]\n"
+            f"  INTEGRITY OVERALL: [bold {c_flag}]{integrity}[/]\n"
         )
 
         full_panel = Panel(
             dossier + verdict_text,
             title=f"[bold #9d6fff]■ DOSSIER: {student}[/]",
-            border_style="#1f2229",
+            border_style=border_c,
             padding=(1, 2)
         )
         self.query_one("#detail", Static).update(full_panel)
 
     def action_refresh(self) -> None:
         if self.is_auditing:
-            self.log_message("[bold #ffb703]![/] Audit sequence locked. Cannot refresh.")
+            self.log_message("[bold #ffb703]![/] Audit sequence locked.")
             return
         self.load_existing_results()
 

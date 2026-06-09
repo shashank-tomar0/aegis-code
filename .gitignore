@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+venv/
+.env
+grades.csv
+.aegis_vet_receipt
+test_submissions/
+aegis.egg-info/
+build/
+dist/
+.idea/
+.vscode/
+aegis.json

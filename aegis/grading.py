@@ -3,6 +3,7 @@ import csv
 import json
 import subprocess
 from aegis.ast_analyzer import analyze_file
+from aegis.multi_lang_ast import analyze_file_multilang
 from aegis.winnowing import get_file_fingerprints, compute_similarity
 from aegis.git_forensics import analyze_git_history
 from aegis.viva_agent import verify_receipt, get_gemini_client
@@ -30,17 +31,19 @@ def scan_student_code(student_dir):
         if any(p in root for p in [".git", "venv", "__pycache__", "env"]):
             continue
         for file in files:
-            if file.endswith(".py") and not file.startswith("test_"):
-                filepath = os.path.join(root, file)
-                python_files.append(filepath)
-                try:
-                    res = analyze_file(filepath)
-                    all_tokens.extend(res["tokens"])
-                    all_functions.extend(res["functions"])
-                    total_lines += res["lines_count"]
-                except Exception as e:
-                    # Log parsing errors but keep going
-                    pass
+            if not file.endswith((".py", ".js", ".java", ".cpp", ".c", ".h", ".hpp")):
+                continue
+            filepath = os.path.join(root, file)
+            python_files.append(filepath)
+            try:
+                # Use multi-language parser
+                res = analyze_file_multilang(filepath)
+                all_tokens.extend(res["tokens"])
+                all_functions.extend(res["functions"])
+                total_lines += res["lines_count"]
+            except Exception as e:
+                print_warning(f"Failed to analyze {filepath}: {e}")
+                pass
 
     return {
         "tokens": all_tokens,

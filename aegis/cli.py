@@ -137,6 +137,7 @@ def audit_command(args):
                 r["Test Score %"], 
                 r["Max Plagiarism Match"], 
                 r["Git Forensic Anomaly"], 
+                r["Fuzz/Gaming Anomaly"],
                 r["Viva Verified"], 
                 r["Viva Ownership Score"], 
                 r["Integrity Flag"], 
@@ -144,7 +145,7 @@ def audit_command(args):
             ])
             
         headers = [
-            "Student", "Tests %", "Max Match", "Git Churn", "Viva Ok", "Ownership", "Integrity", "Final Grade %"
+            "Student", "Tests %", "Max Match", "Git Churn", "Fuzz/Game", "Viva Ok", "Ownership", "Integrity", "Final Grade %"
         ]
         
         if use_tabulate:
@@ -176,6 +177,135 @@ def web_command(args):
     from aegis.web_server import start_server
     start_server(config, submissions_dir, port)
 
+def clone_command(args):
+    """Bulk clones student repositories from a list of URLs or a single URL."""
+    import subprocess
+    print_banner()
+    print_section("BULK CLONING STUDENT REPOSITORIES")
+    
+    # 1. Gather URLs
+    urls = []
+    source = args.repo_source
+    if os.path.exists(source):
+        try:
+            with open(source, "r", encoding="utf-8") as f:
+                for line in f:
+                    u = line.strip()
+                    if u and not u.startswith("#"):
+                        urls.append(u)
+            print_info(f"Loaded {len(urls)} URLs from file: {source}")
+        except Exception as e:
+            print_error(f"Failed to read file {source}: {e}")
+            sys.exit(1)
+    else:
+        if source.startswith(("http://", "https://", "git@", "ssh://")):
+            urls.append(source)
+            print_info(f"Using single repository URL: {source}")
+        else:
+            if "," in source:
+                urls = [u.strip() for u in source.split(",") if u.strip()]
+                print_info(f"Using {len(urls)} comma-separated repository URLs")
+            else:
+                print_error(f"Source '{source}' is neither an existing file nor a valid Git URL.")
+                sys.exit(1)
+                
+    if not urls:
+        print_warning("No URLs found to clone.")
+        return
+
+    dest_dir = args.dest
+    os.makedirs(dest_dir, exist_ok=True)
+    
+    # 2. Clone each
+    success_count = 0
+    for idx, url in enumerate(urls, 1):
+        print(f"\n{Fore.CYAN}[{idx}/{len(urls)}] Processing repository: {url}")
+        
+        # Extract student name from URL
+        repo_name = url.split("/")[-1]
+        if repo_name.endswith(".git"):
+            repo_name = repo_name[:-4]
+            
+        student_name = repo_name
+        if student_name.startswith("assignment-"):
+            student_name = student_name[len("assignment-"):]
+            
+        student_folder = os.path.join(dest_dir, student_name)
+        
+        if os.path.exists(student_folder):
+            print_warning(f"Destination folder '{student_folder}' already exists. Skipping clone.")
+            continue
+            
+        try:
+            with Spinner(f"Cloning into {student_folder}..."):
+                res = subprocess.run(
+                    ["git", "clone", url, student_folder],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=60
+                )
+            if res.returncode == 0:
+                print_success(f"Successfully cloned student submission for: {Fore.GREEN}{student_name}")
+                success_count += 1
+            else:
+                print_error(f"Failed to clone {url}: {res.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            print_error(f"Clone timed out for {url}")
+        except Exception as e:
+            print_error(f"Git execution error: {e}")
+            
+    print(f"\n{Fore.GREEN}{Style.BRIGHT}✔ Bulk cloning complete! {success_count}/{len(urls)} repositories successfully cloned.")
+
+    # 3. Optional post-clone audit
+    if args.audit:
+        print("\n" + "="*60)
+        config = load_config()
+        test_command = config.get("test_command")
+        rubric_path = "rubric.md"
+        print_section("AUTOMATIC AUDIT PIPELINE RUN")
+        results = execute_grading_pipeline(config, dest_dir, test_command, rubric_path)
+        if results:
+            summary_rows = []
+            for r in results:
+                summary_rows.append([
+                    r["Student"], 
+                    r["Test Score %"], 
+                    r["Max Plagiarism Match"], 
+                    r["Git Forensic Anomaly"], 
+                    r["Fuzz/Gaming Anomaly"],
+                    r["Viva Verified"], 
+                    r["Viva Ownership Score"], 
+                    r["Integrity Flag"], 
+                    r["Adjusted Grade %"]
+                ])
+                
+            headers = [
+                "Student", "Tests %", "Max Match", "Git Churn", "Fuzz/Game", "Viva Ok", "Ownership", "Integrity", "Final Grade %"
+            ]
+            
+            try:
+                from tabulate import tabulate
+                use_tabulate = True
+            except ImportError:
+                use_tabulate = False
+                
+            if use_tabulate:
+                print("\n" + tabulate(summary_rows, headers=headers, tablefmt="fancy_grid") + "\n")
+            else:
+                all_cols = [headers] + summary_rows
+                col_widths = [max(len(str(item)) for item in col) for col in zip(*all_cols)]
+                border = "+" + "+".join("-" * (w + 2) for w in col_widths) + "+"
+                lines = [border]
+                header_line = "|" + "|".join(f" {str(h).ljust(w)} " for h, w in zip(headers, col_widths)) + "|"
+                lines.append(header_line)
+                lines.append(border)
+                for row in summary_rows:
+                    row_line = "|" + "|".join(f" {str(item).ljust(w)} " for item, w in zip(row, col_widths)) + "|"
+                    lines.append(row_line)
+                lines.append(border)
+                print("\n" + "\n".join(lines) + "\n")
+
 def main():
     parser = argparse.ArgumentParser(
         description="AegisCode: AI-Age Code Integrity & Vetting Agent"
@@ -202,6 +332,12 @@ def main():
     web_parser.add_argument("--submissions_dir", type=str, default="test_submissions", help="Directory containing student folders")
     web_parser.add_argument("--port", type=int, default=8000, help="Local port to run the server on")
     
+    # Clone subcommand
+    clone_parser = subparsers.add_parser("clone", help="Bulk clone student repositories")
+    clone_parser.add_argument("repo_source", type=str, help="Path to file containing GitHub URLs, or a single repository URL")
+    clone_parser.add_argument("--dest", type=str, default="test_submissions", help="Directory to clone repositories into")
+    clone_parser.add_argument("--audit", action="store_true", help="Automatically run audit on cloned repositories")
+    
     args = parser.parse_args()
     
     if args.command == "init":
@@ -212,6 +348,8 @@ def main():
         audit_command(args)
     elif args.command == "web":
         web_command(args)
+    elif args.command == "clone":
+        clone_command(args)
     else:
         parser.print_help()
 

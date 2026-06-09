@@ -7,6 +7,8 @@ from colorama import Fore, Style
 from aegis.grading import scan_student_code
 from aegis.git_forensics import analyze_git_history
 from aegis.winnowing import get_file_fingerprints, compute_similarity
+from aegis.fuzzer import inspect_hardcoding, dynamic_fuzz_test
+
 
 class AegisDashboardHandler(BaseHTTPRequestHandler):
     submissions_dir = "test_submissions"
@@ -96,9 +98,30 @@ class AegisDashboardHandler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
 
+            # Run fuzzer checks
+            hardcode_count = 0
+            constants_checked = []
+            fuzz_passed = True
+            fuzz_msg = "Passed"
+            for file_path in code_report["files_scanned"]:
+                hc, consts = inspect_hardcoding(file_path)
+                hardcode_count += hc
+                constants_checked.extend(consts)
+                
+                fp_passed, fp_msg = dynamic_fuzz_test(file_path, "search")
+                if not fp_passed:
+                    fuzz_passed = False
+                    fuzz_msg = fp_msg
+
             response_data = {
                 "name": student_name,
                 "lines_count": code_report["lines_count"],
+                "fuzzer": {
+                    "hardcode_count": hardcode_count,
+                    "constants_checked": constants_checked,
+                    "fuzz_passed": fuzz_passed,
+                    "fuzz_msg": fuzz_msg
+                },
                 "functions": [
                     {
                         "name": f["name"],
@@ -184,6 +207,55 @@ class AegisDashboardHandler(BaseHTTPRequestHandler):
                 "code2": code2
             }
             self.wfile.write(json.dumps(response_data).encode("utf-8"))
+            return
+
+        # 5. API: Plagiarism Collusion Network
+        elif self.path == "/api/network":
+            self._set_headers()
+            students = [d for d in os.listdir(self.submissions_dir) if os.path.isdir(os.path.join(self.submissions_dir, d))]
+            student_data = {}
+            for student in students:
+                student_dir = os.path.join(self.submissions_dir, student)
+                code_report = scan_student_code(student_dir)
+                fp = get_file_fingerprints(code_report["tokens"], self.config.get("k_gram", 5), self.config.get("window_size", 4))
+                student_data[student] = fp
+
+            edges = []
+            cluster_map = {s: i for i, s in enumerate(students)}
+            threshold = self.config.get("similarity_threshold", 0.70)
+
+            for i in range(len(students)):
+                for j in range(i + 1, len(students)):
+                    s1 = students[i]
+                    s2 = students[j]
+                    sim = compute_similarity(student_data[s1], student_data[s2])
+                    jaccard = sim["jaccard"]
+
+                    if jaccard >= threshold:
+                        edges.append({
+                            "from": s1,
+                            "to": s2,
+                            "label": f"{jaccard*100:.0f}%",
+                            "value": jaccard * 10,
+                            "color": {"color": "#ff007f", "highlight": "#ff007f"}
+                        })
+                        c1 = cluster_map[s1]
+                        c2 = cluster_map[s2]
+                        min_c = min(c1, c2)
+                        for s in students:
+                            if cluster_map[s] in (c1, c2):
+                                cluster_map[s] = min_c
+
+            nodes = []
+            for s in students:
+                nodes.append({
+                    "id": s,
+                    "label": s,
+                    "group": cluster_map[s],
+                    "value": 15
+                })
+
+            self.wfile.write(json.dumps({"nodes": nodes, "edges": edges}).encode("utf-8"))
             return
 
         else:

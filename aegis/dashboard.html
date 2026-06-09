@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AegisCode Report Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Load Chart.js for Git timelines and Marked.js for rendering feedback Markdown -->
+    <!-- Load Chart.js for Git timelines, Marked.js for rendering feedback Markdown, and vis-network for collusion graphs -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>
         :root {
             --bg-color: #080613;
@@ -413,6 +414,7 @@
             <button class="tab-btn active" onclick="switchTab('overview')">Overview Audit</button>
             <button class="tab-btn" onclick="switchTab('inspector')">Forensic Inspector</button>
             <button class="tab-btn" onclick="switchTab('compare')">AST Logic Compare</button>
+            <button class="tab-btn" onclick="switchTab('network')">Collusion Graph</button>
         </div>
     </header>
 
@@ -431,6 +433,7 @@
                             <th>Tests Score</th>
                             <th>Plagiarism Match</th>
                             <th>Git Churn Anomaly</th>
+                            <th>Fuzz Anomaly</th>
                             <th>Viva Vetted</th>
                             <th>Ownership Score</th>
                             <th>Status Flag</th>
@@ -495,6 +498,21 @@
                                     <!-- Dynamic -->
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+
+                    <!-- Fuzzing Engine Status Card -->
+                    <div class="glass-card" style="margin-top: 24px;">
+                        <div class="card-header" style="font-size: 15px;">Anti-Gaming Fuzzing Engine Status</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 14px; margin-top: 10px;">
+                            <div>
+                                <p style="margin-bottom: 8px;"><strong>Fuzz Test Status:</strong> <span id="fuzz-status-text" class="badge">-</span></p>
+                                <p style="margin-bottom: 8px;"><strong>Hardcoded Checks:</strong> <span id="fuzz-hardcode-count" style="font-weight: 600;">-</span></p>
+                            </div>
+                            <div>
+                                <p style="margin-bottom: 8px; display: none;" id="fuzz-constants-container"><strong>Constants Detected:</strong> <span id="fuzz-constants" style="color: var(--pink); font-family: monospace;">-</span></p>
+                                <p style="margin-bottom: 8px;"><strong>Fuzz Details:</strong> <span id="fuzz-details" style="color: var(--text-muted); font-family: monospace;">-</span></p>
+                            </div>
                         </div>
                     </div>
 
@@ -564,12 +582,25 @@
                 </div>
             </div>
         </div>
+
+        <!-- Tab 4: Plagiarism Collusion Graph -->
+        <div id="network" class="tab-content">
+            <div class="glass-card">
+                <div class="card-header" style="border: none; padding-left: 0;">Plagiarism Collusion Ring Graph</div>
+                <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 24px;">
+                    This force-directed graph clusters student submissions based on structural code similarity. Clustered nodes (colored identically) and highlighted pink edges represent potential collusion networks.
+                </p>
+                <div id="collusion-network-container" style="height: 600px; border: 1px solid var(--border-color); border-radius: 12px; background: rgba(2,1,8,0.45); overflow: hidden; position: relative;"></div>
+            </div>
+        </div>
     </main>
 
     <script>
         let summaryData = [];
         let activeStudent = null;
         let churnChart = null;
+
+        let networkInstance = null;
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -580,6 +611,9 @@
             
             if (tabId === 'inspector' && !activeStudent && summaryData.length > 0) {
                 selectStudent(summaryData[0].Student);
+            }
+            if (tabId === 'network') {
+                loadNetworkGraph();
             }
         }
 
@@ -626,6 +660,16 @@
                         gitBadge = `<span class="badge badge-pending">NO REPO</span>`;
                     }
 
+                    const fuzzAnomaly = row["Fuzz/Gaming Anomaly"];
+                    let fuzzBadge = `<span class="badge badge-clean">Passed</span>`;
+                    if (fuzzAnomaly === "HARDCODED_CHEAT") {
+                        fuzzBadge = `<span class="badge badge-flagged">HARDCODE</span>`;
+                    } else if (fuzzAnomaly === "FUZZ_FAILED") {
+                        fuzzBadge = `<span class="badge badge-flagged">FUZZ FAIL</span>`;
+                    } else if (fuzzAnomaly === "BOTH_FAILED") {
+                        fuzzBadge = `<span class="badge badge-flagged">BOTH FAIL</span>`;
+                    }
+
                     const flag = row["Integrity Flag"];
                     const flagBadge = flag === "FLAGGED" 
                         ? `<span class="badge badge-flagged">Flagged</span>` 
@@ -636,6 +680,7 @@
                         <td>${row["Test Score %"]}% (${row["Tests Passed"]}/${row["Total Tests"]})</td>
                         <td>${row["Max Plagiarism Match"]}</td>
                         <td>${gitBadge}</td>
+                        <td>${fuzzBadge}</td>
                         <td>${row["Viva Verified"] === "YES" ? "✅ Yes" : "❌ No"}</td>
                         <td>${row["Viva Ownership Score"]}</td>
                         <td>${flagBadge}</td>
@@ -721,6 +766,31 @@
                     document.getElementById('code-filepath').textContent = 'No files';
                     codeBody.innerHTML = '# No source code found';
                 }
+
+                // Update Fuzzer details
+                const fuzzer = data.fuzzer || { fuzz_passed: true, hardcode_count: 0, constants_checked: [], fuzz_msg: "No details" };
+                const fuzzStatusText = document.getElementById('fuzz-status-text');
+                
+                fuzzStatusText.className = 'badge';
+                if (fuzzer.fuzz_passed && fuzzer.hardcode_count === 0) {
+                    fuzzStatusText.textContent = "PASSED";
+                    fuzzStatusText.classList.add('badge-clean');
+                } else {
+                    let statusText = [];
+                    if (!fuzzer.fuzz_passed) statusText.push("FUZZ FAIL");
+                    if (fuzzer.hardcode_count > 0) statusText.push("HARDCODE");
+                    fuzzStatusText.textContent = statusText.join(" / ");
+                    fuzzStatusText.classList.add('badge-flagged');
+                }
+                
+                document.getElementById('fuzz-hardcode-count').textContent = fuzzer.hardcode_count;
+                if (fuzzer.hardcode_count > 0) {
+                    document.getElementById('fuzz-constants-container').style.display = 'block';
+                    document.getElementById('fuzz-constants').textContent = fuzzer.constants_checked.join(", ");
+                } else {
+                    document.getElementById('fuzz-constants-container').style.display = 'none';
+                }
+                document.getElementById('fuzz-details').textContent = fuzzer.fuzz_msg;
 
                 // Update Complexity Table
                 const compBody = document.querySelector('#complexity-table tbody');
@@ -832,6 +902,58 @@
                 document.getElementById('compare-s2-code').innerHTML = cleanCode2;
             } catch (err) {
                 console.error("Failed to run comparison", err);
+            }
+        }
+
+        async function loadNetworkGraph() {
+            const container = document.getElementById('collusion-network-container');
+            container.innerHTML = '<div style="color: var(--text-muted); position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">Rendering collusion graph...</div>';
+            
+            try {
+                const res = await fetch('/api/network');
+                const data = await res.json();
+                
+                container.innerHTML = '';
+                
+                const graphData = {
+                    nodes: new vis.DataSet(data.nodes),
+                    edges: new vis.DataSet(data.edges)
+                };
+                
+                const options = {
+                    nodes: {
+                        shape: 'dot',
+                        font: { size: 14, color: '#f8f9fa', face: 'Outfit' },
+                        borderWidth: 2,
+                        shadow: true
+                    },
+                    edges: {
+                        width: 2,
+                        shadow: true,
+                        font: { size: 12, color: '#8e94a5', face: 'Outfit', align: 'top' },
+                        scaling: { min: 1, max: 10 }
+                    },
+                    physics: {
+                        forceAtlas2Based: {
+                            gravitationalConstant: -50,
+                            centralGravity: 0.01,
+                            springLength: 120,
+                            springConstant: 0.08
+                        },
+                        maxVelocity: 50,
+                        solver: 'forceAtlas2Based',
+                        timestep: 0.35,
+                        stabilization: { iterations: 100 }
+                    }
+                };
+                
+                if (networkInstance) {
+                    networkInstance.destroy();
+                }
+                networkInstance = new vis.Network(container, graphData, options);
+            } catch (err) {
+                console.error("Failed to load collusion network graph", err);
+                container.innerHTML = '<div style="color: var(--pink); position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">Failed to load network data.</div>';
             }
         }
 

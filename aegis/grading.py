@@ -7,6 +7,8 @@ from aegis.git_forensics import analyze_git_history
 from aegis.viva_agent import verify_receipt, get_gemini_client
 from colorama import Fore, Style
 from aegis.ui import Spinner, print_success, print_warning, print_error, print_info
+from aegis.fuzzer import inspect_hardcoding, dynamic_fuzz_test
+
 
 def scan_student_code(student_dir):
     """Scans all Python files in a student's folder and aggregates AST tokens and functions."""
@@ -183,6 +185,31 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
                 except Exception:
                     pass
             
+            # Run Fuzzer Checks
+            hardcode_count = 0
+            constants_checked = []
+            fuzz_passed = True
+            fuzz_message = "Passed"
+            
+            for file_path in code_report["files_scanned"]:
+                hc_cnt, consts = inspect_hardcoding(file_path)
+                hardcode_count += hc_cnt
+                constants_checked.extend(consts)
+                
+                passed, msg = dynamic_fuzz_test(file_path, "search")
+                if not passed:
+                    fuzz_passed = False
+                    fuzz_message = msg
+
+            if hardcode_count > 0 and not fuzz_passed:
+                fuzz_anomaly = "BOTH_FAILED"
+            elif hardcode_count > 0:
+                fuzz_anomaly = "HARDCODED_CHEAT"
+            elif not fuzz_passed:
+                fuzz_anomaly = "FUZZ_FAILED"
+            else:
+                fuzz_anomaly = "PASSED"
+
             student_data[student] = {
                 "dir": student_dir,
                 "code": code_report,
@@ -190,7 +217,11 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
                 "fingerprints": fp,
                 "viva_verified": viva_verified,
                 "viva_score": viva_score,
-                "viva_msg": viva_msg
+                "viva_msg": viva_msg,
+                "fuzz_anomaly": fuzz_anomaly,
+                "fuzz_message": fuzz_message,
+                "hardcode_count": hardcode_count,
+                "constants_checked": constants_checked
             }
 
     # Cross-match students for plagiarism
@@ -245,8 +276,9 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
         plagiarism_flag = max_sim["max_jaccard"] >= config["similarity_threshold"]
         git_flag = (not data["git"]["is_git_repo"]) or data["git"]["step_churn_anomaly"] or data["git"]["time_anomaly"]
         viva_flag = (not data["viva_verified"]) or (data["viva_score"] < 50)
+        fuzz_flag = data["fuzz_anomaly"] != "PASSED"
         
-        integrity_flag = plagiarism_flag or git_flag or viva_flag
+        integrity_flag = plagiarism_flag or git_flag or viva_flag or fuzz_flag
         
         git_anomaly_str = "NO"
         if not data["git"]["is_git_repo"]:
@@ -265,6 +297,7 @@ def execute_grading_pipeline(config, submissions_dir, test_command=None, rubric_
             "Test Score %": f"{test_pct:.1f}",
             "Max Plagiarism Match": f"{max_sim['max_jaccard']*100:.1f}% ({max_sim['match_partner']})",
             "Git Forensic Anomaly": git_anomaly_str,
+            "Fuzz/Gaming Anomaly": data["fuzz_anomaly"],
             "Viva Verified": "YES" if data["viva_verified"] else "NO",
             "Viva Ownership Score": f"{data['viva_score']}%",
             "Integrity Flag": "FLAGGED" if integrity_flag else "CLEAN",
